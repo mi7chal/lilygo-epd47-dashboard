@@ -1,0 +1,41 @@
+# editors
+.vscode/
+.idea/
+
+
+# Builds
+.venc
+*.bin
+*.elf
+*.hex
+*.bin
+*.exe
+*.so
+*.dylib
+build/
+
+.clangd/
+.ccls-cache/
+
+# PlatformIO 
+env/
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Library and dependency folders
+libdeps/
+
+# Backup and OS files
+Thumbs.db
+desktop.ini
+
+# Python virtualenv
+venv/
+env/
+
+# User-specific files
+.env
+
+# misc
+.DS_Store
