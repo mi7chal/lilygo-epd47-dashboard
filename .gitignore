@@ -23,6 +23,11 @@ env/
 .pioenvs/
 .piolibdeps/
 
+managed_components/
+
+sdkconfig.*
+!sdkconfig.defaults*
+
 # Library and dependency folders
 libdeps/
 
@@ -32,6 +37,7 @@ desktop.ini
 
 # Python virtualenv
 venv/
+.venv/
 env/
 
 # User-specific files

@@ -1,4 +1,0 @@
-dependencies:
-  fmt:
-    version: "*"
-    override_path: "../../../"
