@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <title>LilyGO Dashboard Setup</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #0b1220;
+            --panel: #111827;
+            --panel-border: #243044;
+            --text: #e5eefb;
+            --muted: #9aa9bf;
+            --accent: #60a5fa;
+            --ok: #34d399;
+            --error: #f87171;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: linear-gradient(180deg, #08111f 0%, #0b1220 100%);
+            color: var(--text);
+            padding: 20px;
+        }
+
+        .wrap {
+            max-width: 720px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--panel-border);
+            border-radius: 20px;
+            padding: 18px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 1.7rem;
+        }
+
+        p {
+            margin: 0 0 16px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .grid {
+            display: grid;
+            gap: 12px;
+        }
+
+        .two {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.92rem;
+        }
+
+        input {
+            width: 100%;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            background: #0b1220;
+            color: var(--text);
+            padding: 12px 14px;
+            font: inherit;
+        }
+
+        input:focus {
+            outline: 2px solid rgba(96, 165, 250, 0.35);
+            border-color: var(--accent);
+        }
+
+        .help {
+            margin-top: 8px;
+            font-size: 0.85rem;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        .help a {
+            color: #93c5fd;
+            text-decoration: none;
+        }
+
+        .help a:hover {
+            text-decoration: underline;
+        }
+
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        button {
+            border: 0;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .primary {
+            background: var(--accent);
+            color: #08111f;
+        }
+
+        .secondary {
+            background: #1f2937;
+            color: var(--text);
+            border: 1px solid #334155;
+        }
+
+        .status {
+            margin-top: 14px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: #0b1220;
+            border: 1px solid #334155;
+            color: var(--muted);
+            min-height: 48px;
+        }
+
+        /* prominent banner for important feedback */
+        .status.banner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 0.98rem;
+            box-shadow: 0 8px 20px rgba(2,6,23,0.6);
+        }
+
+        .status .icon {
+            width: 28px;
+            height: 28px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.03);
+            flex-shrink: 0;
+        }
+
+        .spinner {
+            width: 18px;
+            height: 18px;
+            border: 2px solid rgba(255,255,255,0.12);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .status[data-state="success"] {
+            color: #bbf7d0;
+            border-color: rgba(52, 211, 153, 0.4);
+            background: rgba(16, 185, 129, 0.12);
+        }
+
+        .status[data-state="error"] {
+            color: #fecaca;
+            border-color: rgba(248, 113, 113, 0.4);
+            background: rgba(239, 68, 68, 0.12);
+        }
+
+        .small {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        @media (max-width: 640px) {
+            body {
+                padding: 14px;
+            }
+
+            .two {
+                grid-template-columns: 1fr;
+            }
+
+            .actions {
+                flex-direction: column;
+            }
+
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="wrap">
+        <div class="card">
+            <h1>LilyGO Dashboard Setup</h1>
+            <p>Enter Wi-Fi details, your OpenWeather token, and your address. The page will use OpenWeather geocoding to resolve coordinates and show the best match before saving.</p>
+
+            <form id="setupForm" class="grid" autocomplete="on">
+                <div class="two">
+                    <div>
+                        <label for="ssid">Wi-Fi SSID</label>
+                        <input id="ssid" name="ssid" type="text" placeholder="Home Wi-Fi">
+                    </div>
+                    <div>
+                        <label for="pass">Wi-Fi password</label>
+                        <input id="pass" name="pass" type="password" placeholder="Password">
+                        <div class="help" style="margin-top:6px; color:var(--muted); font-size:0.9rem;">Leave empty to keep current credentials.</div>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="token">OpenWeather token</label>
+                    <input id="token" name="token" type="text" placeholder="API token">
+                    <div class="help">
+                        <a href="https://home.openweathermap.org/api_keys" target="_blank" rel="noreferrer noopener">Need an OpenWeather API key? Create or manage one here.</a>
+                        <div style="margin-top:6px; color:var(--muted); font-size:0.9rem;">Leave this field empty to keep the token already saved on the device.</div>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="addressLine">Address</label>
+                    <input id="addressLine" name="addressLine" type="text" placeholder="Main Street 12A">
+                </div>
+
+                <div class="two">
+                    <div>
+                        <label for="city">City</label>
+                        <input id="city" name="city" type="text" placeholder="Warsaw">
+                    </div>
+                    <div>
+                        <label for="postalCode">Postal code</label>
+                        <input id="postalCode" name="postalCode" type="text" placeholder="00-001">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="country">Country</label>
+                    <select id="country" name="country">
+                        <option value="">Select country</option>
+                    </select>
+                </div>
+
+                <div class="two">
+                    <div>
+                        <label for="lat">Latitude</label>
+                        <input id="lat" name="lat" type="text" inputmode="decimal" placeholder="Resolved automatically">
+                    </div>
+                    <div>
+                        <label for="lon">Longitude</label>
+                        <input id="lon" name="lon" type="text" inputmode="decimal" placeholder="Resolved automatically">
+                    </div>
+                </div>
+
+                <div class="actions">
+                    <button class="secondary" type="button" id="resolveBtn">Resolve location</button>
+                    <button class="primary" type="submit" id="submitBtn">Save settings</button>
+                    <button class="secondary" type="button" id="resetBtn">Reset</button>
+                </div>
+
+                <div class="status" id="statusBox" data-state="idle">Fill in the form and resolve the address.</div>
+                <div class="status" id="resultBox" data-state="idle">No location resolved yet.</div>
+            </form>
+
+            <div class="small">
+                OpenWeather geocoding is best-effort. It usually resolves to the nearest matching locality, so use the preview to check whether the result is precise enough before saving.
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (() => {
+        const form = document.getElementById('setupForm');
+        const resolveBtn = document.getElementById('resolveBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const statusBox = document.getElementById('statusBox');
+        const resultBox = document.getElementById('resultBox');
+        const tokenInput = document.getElementById('token');
+        const addressLineInput = document.getElementById('addressLine');
+        const cityInput = document.getElementById('city');
+        const postalCodeInput = document.getElementById('postalCode');
+        const countryInput = document.getElementById('country');
+        const countrySelect = countryInput; // alias for clarity
+        const latInput = document.getElementById('lat');
+        const lonInput = document.getElementById('lon');
+        const addressInputs = [addressLineInput, cityInput, postalCodeInput, countryInput];
+        let lastResolvedQuery = '';
+
+        const setStatus = (message, state = 'idle') => {
+            // state: 'idle' | 'pending' | 'success' | 'error'
+            statusBox.dataset.state = state;
+            // clear and build content with optional icon/spinner
+            statusBox.innerHTML = '';
+            const icon = document.createElement('span');
+            icon.className = 'icon';
+
+            if (state === 'pending') {
+                const spinner = document.createElement('span');
+                spinner.className = 'spinner';
+                icon.appendChild(spinner);
+            } else if (state === 'success') {
+                icon.innerHTML = '&#10003;'; // check
+            } else if (state === 'error') {
+                icon.innerHTML = '&#x2715;'; // cross
+            } else {
+                icon.innerHTML = '&#9432;'; // info
+            }
+
+            const text = document.createElement('div');
+            text.textContent = message;
+
+            statusBox.appendChild(icon);
+            statusBox.appendChild(text);
+
+            // add banner styling when active (pending/success/error)
+            if (state === 'pending' || state === 'success' || state === 'error') {
+                statusBox.classList.add('banner');
+            } else {
+                statusBox.classList.remove('banner');
+            }
+        };
+
+        const setResult = (message, state = 'idle') => {
+            resultBox.textContent = message;
+            resultBox.dataset.state = state;
+        };
+
+        const sanitize = (value) => value.trim();
+
+        const normalizeCoordinate = (value) => sanitize(value).replace(',', '.');
+
+        const countries = [
+            {code: 'PL', name: 'Poland'},
+            {code: 'US', name: 'United States'},
+            {code: 'GB', name: 'United Kingdom'},
+            {code: 'DE', name: 'Germany'},
+            {code: 'FR', name: 'France'},
+            {code: 'ES', name: 'Spain'},
+            {code: 'IT', name: 'Italy'},
+            {code: 'NL', name: 'Netherlands'},
+            {code: 'BE', name: 'Belgium'},
+            {code: 'CH', name: 'Switzerland'},
+            {code: 'AT', name: 'Austria'},
+            {code: 'SE', name: 'Sweden'},
+            {code: 'NO', name: 'Norway'},
+            {code: 'DK', name: 'Denmark'},
+            {code: 'FI', name: 'Finland'},
+            {code: 'RU', name: 'Russia'},
+            {code: 'CN', name: 'China'},
+            {code: 'JP', name: 'Japan'},
+            {code: 'KR', name: 'South Korea'},
+            {code: 'IN', name: 'India'},
+            {code: 'BR', name: 'Brazil'},
+            {code: 'AR', name: 'Argentina'},
+            {code: 'MX', name: 'Mexico'},
+            {code: 'CA', name: 'Canada'},
+            {code: 'AU', name: 'Australia'},
+            {code: 'NZ', name: 'New Zealand'},
+            {code: 'ZA', name: 'South Africa'},
+            {code: 'EG', name: 'Egypt'},
+            {code: 'TR', name: 'Turkey'},
+            {code: 'IL', name: 'Israel'},
+            {code: 'SA', name: 'Saudi Arabia'},
+            {code: 'AE', name: 'United Arab Emirates'},
+            {code: 'NG', name: 'Nigeria'},
+            {code: 'KE', name: 'Kenya'},
+            {code: 'VN', name: 'Vietnam'},
+            {code: 'TH', name: 'Thailand'},
+            {code: 'MY', name: 'Malaysia'},
+            {code: 'SG', name: 'Singapore'},
+            {code: 'ID', name: 'Indonesia'},
+            {code: 'PH', name: 'Philippines'},
+            {code: 'PT', name: 'Portugal'},
+            {code: 'GR', name: 'Greece'},
+            {code: 'CZ', name: 'Czech Republic'},
+            {code: 'SK', name: 'Slovakia'},
+            {code: 'HU', name: 'Hungary'},
+            {code: 'RO', name: 'Romania'},
+            {code: 'BG', name: 'Bulgaria'},
+            {code: 'HR', name: 'Croatia'},
+            {code: 'SI', name: 'Slovenia'},
+            {code: 'LT', name: 'Lithuania'},
+            {code: 'LV', name: 'Latvia'},
+            {code: 'EE', name: 'Estonia'},
+            {code: 'IS', name: 'Iceland'},
+            {code: 'IE', name: 'Ireland'}
+        ];
+
+        function populateCountrySelect() {
+            try {
+                const select = document.getElementById('country');
+                if (!select) return;
+                // avoid duplicating options
+                if (select.options.length > 1) return;
+                countries.forEach(c => {
+                    const opt = document.createElement('option');
+                    opt.value = c.code;
+                    opt.textContent = `${c.name} (${c.code})`;
+                    select.appendChild(opt);
+                });
+            } catch (e) { /* ignore */ }
+        }
+
+        const buildQuery = () => {
+            const parts = [
+                sanitize(addressLineInput.value),
+                sanitize(cityInput.value),
+                sanitize(postalCodeInput.value),
+                sanitize(countryInput.value)
+            ].filter(Boolean);
+
+            return parts.join(', ');
+        };
+
+        const formatLocation = (location) => {
+            const placeParts = [location.name, location.state, location.country].filter(Boolean);
+            const coordinateText = `${Number(location.lat).toFixed(6)}, ${Number(location.lon).toFixed(6)}`;
+
+            return `${placeParts.join(', ')} -> ${coordinateText}`;
+        };
+
+        const clearResolvedCoordinates = () => {
+            lastResolvedQuery = '';
+            latInput.value = '';
+            lonInput.value = '';
+            setResult('Location preview will update after resolving the address.', 'idle');
+        };
+
+        addressInputs.forEach((input) => {
+            input.addEventListener('input', () => {
+                if (lastResolvedQuery !== buildQuery()) {
+                    clearResolvedCoordinates();
+                }
+            });
+        });
+
+        const resolveLocation = async () => {
+            // Server-side geocoding proxy. Requires token to be saved on device.
+            resolveBtn.disabled = true;
+            setStatus('Requesting device to resolve address...', 'idle');
+
+            try {
+                const response = await fetch('/api/geocode');
+                if (response.status === 400) {
+                    setStatus('No API token saved on device. Save settings first.', 'error');
+                    return false;
+                }
+                if (response.status === 503) {
+                    setStatus('Device not connected to WiFi. Connect device to network or save and reboot.', 'error');
+                    return false;
+                }
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const obj = await response.json();
+                if (obj && obj.latitude && obj.longitude) {
+                    latInput.value = normalizeCoordinate(obj.latitude);
+                    lonInput.value = normalizeCoordinate(obj.longitude);
+                    lastResolvedQuery = buildQuery();
+                    setResult(`Resolved: ${latInput.value}, ${lonInput.value}`, 'success');
+                    setStatus('Address resolved by device. Check preview before saving.', 'success');
+                    return true;
+                }
+
+                setResult('Device did not return coordinates.', 'error');
+                setStatus('Could not resolve the address.', 'error');
+                return false;
+            } catch (error) {
+                setResult('Device could not resolve this address. Try saving settings first or ensure device is online.', 'error');
+                setStatus('Could not resolve the address.', 'error');
+                return false;
+            } finally {
+                resolveBtn.disabled = false;
+            }
+        };
+
+        const updateButtonState = (disabled) => {
+            submitBtn.disabled = disabled;
+            resolveBtn.disabled = disabled;
+            resetBtn.disabled = disabled;
+        };
+
+        const loadSavedSettings = async () => {
+            try {
+                const response = await fetch('/api/settings');
+                if (!response.ok) {
+                    return;
+                }
+
+                const settings = await response.json();
+                document.getElementById('ssid').value = settings.ssid || '';
+                addressLineInput.value = settings.addressLine || '';
+                cityInput.value = settings.city || '';
+                postalCodeInput.value = settings.postalCode || '';
+                // populate country select then set value
+                populateCountrySelect();
+                if (settings.country) {
+                    countrySelect.value = settings.country;
+                }
+                latInput.value = normalizeCoordinate(settings.latitude || '');
+                lonInput.value = normalizeCoordinate(settings.longitude || '');
+
+                if (latInput.value && lonInput.value) {
+                    lastResolvedQuery = buildQuery();
+                    setResult(`Saved coordinates loaded: ${latInput.value}, ${lonInput.value}`, 'idle');
+                }
+            } catch (error) {
+                // keep the form usable even if the settings endpoint fails
+            }
+        };
+
+        resolveBtn.addEventListener('click', async () => {
+            await resolveLocation();
+        });
+
+        resetBtn.addEventListener('click', () => {
+            form.reset();
+            setStatus('Form reset.', 'idle');
+            setResult('No location resolved yet.', 'idle');
+            lastResolvedQuery = '';
+            latInput.focus();
+        });
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            // Submit settings to device. Only send ssid/pass/token if user provided them
+            const formData = new FormData(form);
+            const params = new URLSearchParams();
+
+            // network/token: only include if non-empty (avoid overwriting stored values)
+            const ssidVal = (formData.get('ssid') || '').toString().trim();
+            const passVal = (formData.get('pass') || '').toString().trim();
+            const tokenVal = (formData.get('token') || '').toString().trim();
+            // always include SSID (it's loaded into the form), so it won't be accidentally omitted
+            params.append('ssid', ssidVal);
+            if (passVal !== '') params.append('pass', passVal);
+            if (tokenVal !== '') params.append('token', tokenVal);
+
+            // address fields: include whatever user entered (including empty to allow clearing)
+            params.append('addressLine', (formData.get('addressLine') || '').toString());
+            params.append('city', (formData.get('city') || '').toString());
+            params.append('postalCode', (formData.get('postalCode') || '').toString());
+            params.append('country', (formData.get('country') || '').toString());
+
+            // lat/lon: include if provided
+            const latVal = normalizeCoordinate((formData.get('lat') || '').toString());
+            const lonVal = normalizeCoordinate((formData.get('lon') || '').toString());
+            if (latVal) params.append('lat', latVal);
+            if (lonVal) params.append('lon', lonVal);
+
+            updateButtonState(true);
+            setStatus('Sending data to device...', 'pending');
+
+            try {
+                const response = await fetch('/api/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+                    },
+                    body: params.toString()
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const obj = await response.json().catch(() => ({}));
+                // craft a user-friendly message accounting for whether token/ssid were updated
+                let message = '';
+                if (obj.geocoded) {
+                    message = 'Device resolved coordinates and saved settings. Restarting now...';
+                } else {
+                    message = 'Settings saved. Device will resolve coordinates after it connects to WiFi.';
+                }
+                if (tokenVal === '') {
+                    message += ' (token left unchanged)';
+                }
+
+                setStatus(message, 'success');
+
+                // keep success visible briefly, then reload
+                setTimeout(() => window.location.reload(), 5000);
+            } catch (error) {
+                setStatus('Failed to send data. Please try again.', 'error');
+            } finally {
+                updateButtonState(false);
+            }
+        });
+
+            loadSavedSettings();
+    })();
+    </script>
+</body>
+</html>

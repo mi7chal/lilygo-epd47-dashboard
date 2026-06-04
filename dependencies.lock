@@ -1,0 +1,39 @@
+dependencies:
+  espressif/fmt:
+    component_hash: aad535ae0552e693978867f5e53731c8ae6592092cfb087698b7ec1ddf75c7cb
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 11.0.1
+  espressif/mdns:
+    component_hash: 8bcf12e37c58c1d584aef32a02b92548124c7a3a9fcf548d3235c844a035e0f0
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.11.1
+  idf:
+    source:
+      type: idf
+    version: 5.5.0
+  vroland/epdiy:
+    component_hash: 4fcefa979de37382ce76a4f4e5afd369927829c7dbeffa8efef5388f9c7cf0ae
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.0.0
+direct_dependencies:
+- espressif/fmt
+- espressif/mdns
+- vroland/epdiy
+manifest_hash: 01b4d0be1c462b6a65eb80e883793d5d967f8d23a42c142225145ac1bf2cdf8d
+target: esp32s3
+version: 2.0.0

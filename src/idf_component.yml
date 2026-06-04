@@ -1,0 +1,4 @@
+dependencies:
+  espressif/fmt: ^11.0.1
+  espressif/mdns: ^1.11.1
+  vroland/epdiy: 2.0.0

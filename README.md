@@ -1,3 +1,3 @@
 # Lilygo T5 4.7 dashboard
 
-Platformio based, longer readme soon.
+Platformio based with esp-idf, longer readme soon.
