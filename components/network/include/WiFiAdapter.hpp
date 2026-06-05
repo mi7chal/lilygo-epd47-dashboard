@@ -7,8 +7,23 @@
 #include <string_view>
 
 #include "IpAddress.hpp"
-
+#include "NetworkState.hpp"
 namespace app::network {
+
+
+struct WiFiConnectionInfo {
+  std::string ssid;
+  std::string hostname;
+  IpAddress ip;
+  int32_t rssi;
+};
+
+struct AccessPointInfo {
+  std::string ssid;
+  std::string password;
+  std::string hostname;
+  IpAddress ip;
+};
 
 enum class NetworkEvent {
   StationConnectionEstablished = IP_EVENT_STA_GOT_IP,  // we consider connection established when we get IP
@@ -24,12 +39,12 @@ class WiFiAdapter {
   // Splitting them into separate types for better type safety and clarity
   // pointers instead of std::function to avoid dynamic memory allocation and
   // adiitional cpu/memory overhead
-  using StationConnectionCallback = void (*)(void* context, app::network::IpAddress ip_address);
+  using StationConnectionCallback = void (*)(void* context, IpAddress ip_address);
   using StationDisconnectionCallback = void (*)(void* context);
   using AccessPointStartedCallback = void (*)(void* context);
   using AccessPointStoppedCallback = void (*)(void* context);
 
-  WiFiAdapter(void* context, std::string_view hostname);
+  WiFiAdapter(void* context, NetworkState& network_state, std::string_view hostname);
   ~WiFiAdapter() noexcept;
   WiFiAdapter(const WiFiAdapter&) = delete;
   WiFiAdapter& operator=(const WiFiAdapter&) = delete;
@@ -38,6 +53,8 @@ class WiFiAdapter {
 
   bool init();
   void deinit();
+
+  void enableMDNS(std::string_view instance_name = "");
 
   void startAccessPoint(std::string_view ssid, std::string_view password);
   void stopAccessPoint();
@@ -57,14 +74,17 @@ class WiFiAdapter {
    */
   void unregisterEventHandler(NetworkEvent event);
 
-  [[nodiscard]] const bool isConnected() const;
-  [[nodiscard]] const bool isInitialized() const;
+  [[nodiscard]] bool isConnected() const { return network_state_.isConnected(); };
+  [[nodiscard]] bool isInitialized() const { return initialized_; };
+  [[nodiscard]] std::optional<WiFiConnectionInfo> getWiFiConnectionInfo() const;
+  [[nodiscard]] std::optional<AccessPointInfo> getAccessPointInfo() const;
 
  private:
   void initAccessPoint();
   void initStation();
 
   void* context_{nullptr};
+  NetworkState& network_state_;
 
   bool initialized_{false};
   esp_netif_t* sta_netif{nullptr};  // nullptr means not initialized

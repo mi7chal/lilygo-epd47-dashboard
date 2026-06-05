@@ -21,7 +21,7 @@ class NVSAdapter {
   void open(NVSOpenMode mode = NVSOpenMode::ReadOnly);
   void close();
   void commit();
-  const bool init();
+  bool init();
 
   std::string readString(const char* key, const char* defaultValue = "") const;
   int32_t readInt32(const char* key, int32_t defaultValue = 0) const;
@@ -31,7 +31,7 @@ class NVSAdapter {
   void saveInt32(const char* key, int32_t value);
 
 
-  [[nodiscard]] const bool isOpen() const { return handle_ != 0; }
+  [[nodiscard]] bool isOpen() const { return handle_ != 0; }
 
  private:
   std::string_view namespace_;

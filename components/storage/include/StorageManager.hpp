@@ -51,7 +51,7 @@ class StorageManager {
   [[nodiscard]] const std::string& getCountry() const { return country_; }
   [[nodiscard]] const std::string& getLatitude() const { return latitude_; }
   [[nodiscard]] const std::string& getLongitude() const { return longitude_; }
-  [[nodiscard]] const int32_t getTimezoneOffsetSeconds() const { return timezone_offset_seconds_; }
+  [[nodiscard]] int32_t getTimezoneOffsetSeconds() const { return timezone_offset_seconds_; }
   [[nodiscard]] bool isGeocodePending() const { return geocodePending_ != 0; };
 
   void setGeocodePending(bool pending);

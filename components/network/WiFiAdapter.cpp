@@ -1,5 +1,7 @@
 #include "WiFiAdapter.hpp"
 
+#include <mdns.h>
+
 #include <algorithm>
 
 #include "logger.hpp"
@@ -8,11 +10,38 @@
 
 namespace app::network {
 
-WiFiAdapter::WiFiAdapter(void* context, std::string_view hostname) : context_(context), hostname_(hostname) {}
+WiFiAdapter::WiFiAdapter(void* context, NetworkState& network_state, std::string_view hostname)
+    : context_(context), network_state_(network_state), hostname_(hostname) {}
 
 WiFiAdapter::~WiFiAdapter() noexcept { deinit(); }
 
-WiFiAdapter::WiFiAdapter(WiFiAdapter&& other) noexcept {
+WiFiAdapter::WiFiAdapter(WiFiAdapter&& other) noexcept
+    : context_(other.context_),
+      network_state_(other.network_state_),
+      initialized_(other.initialized_),
+      sta_netif(other.sta_netif),
+      ap_netif(other.ap_netif),
+      wifi_event_group_(other.wifi_event_group_),
+      hostname_(std::move(other.hostname_)),
+      stationConnectionCallback_(other.stationConnectionCallback_),
+      stationDisconnectionCallback_(other.stationDisconnectionCallback_),
+      accessPointStartedCallback_(other.accessPointStartedCallback_),
+      accessPointStoppedCallback_(other.accessPointStoppedCallback_),
+      wifi_event_instance(other.wifi_event_instance),
+      ip_event_instance(other.ip_event_instance) {
+  // Invalidate the other instance to prevent double cleanup
+  other.context_ = nullptr;
+  other.initialized_ = false;
+  other.sta_netif = nullptr;
+  other.ap_netif = nullptr;
+  other.wifi_event_group_ = nullptr;
+  other.stationConnectionCallback_ = nullptr;
+  other.stationDisconnectionCallback_ = nullptr;
+  other.accessPointStartedCallback_ = nullptr;
+  other.accessPointStoppedCallback_ = nullptr;
+  other.wifi_event_instance = nullptr;
+  other.ip_event_instance = nullptr;
+
   // todo
 }
 
@@ -75,6 +104,52 @@ void WiFiAdapter::deinit() {
   esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_instance);
 }
 
+std::optional<WiFiConnectionInfo> WiFiAdapter::getWiFiConnectionInfo() const {
+  if (!initialized_ || !network_state_.isStaConnected()) {
+    return std::nullopt;
+  }
+
+  wifi_ap_record_t apRecord{};
+  if (esp_wifi_sta_get_ap_info(&apRecord) != ESP_OK) {
+    logger::warn("Failed to read STA info for connection info");
+    return std::nullopt;
+  }
+
+  esp_netif_ip_info_t ipInfo{};
+  if (esp_netif_get_ip_info(sta_netif, &ipInfo) != ESP_OK) {
+    logger::warn("Failed to read IP info for connection info");
+    return std::nullopt;
+  }
+
+  // technically hostname could be gotten from netif too, but it's already stored
+  return WiFiConnectionInfo{std::string(reinterpret_cast<const char*>(apRecord.ssid)), std::string{hostname_},
+                            IpAddress{ipInfo.ip.addr}, apRecord.rssi};
+}
+
+std::optional<AccessPointInfo> WiFiAdapter::getAccessPointInfo() const {
+  if (!initialized_ || !network_state_.isApActive()) {
+    return std::nullopt;
+  }
+
+  esp_netif_ip_info_t ipInfo{};
+  if (esp_netif_get_ip_info(ap_netif, &ipInfo) != ESP_OK) {
+    logger::warn("Failed to read IP info for access point info");
+    return std::nullopt;
+  }
+
+  wifi_config_t ap_config{};
+  if (esp_wifi_get_config(WIFI_IF_AP, &ap_config) != ESP_OK) {
+    logger::warn("Failed to read AP config for access point info");
+    return std::nullopt;
+  }
+
+  // technically hostname could be gotten from netif too, but it's already stored
+  return AccessPointInfo{std::string(reinterpret_cast<const char*>(ap_config.ap.ssid)),
+                         std::string(reinterpret_cast<const char*>(ap_config.ap.password)), std::string{hostname_},
+                         IpAddress{ipInfo.ip.addr}};
+}
+
+
 void WiFiAdapter::initAccessPoint() {
   if (!initialized_) {
     logger::warn("Attempted to initialize Access Point without general initialization");
@@ -101,6 +176,22 @@ void WiFiAdapter::initStation() {
   }
 
   sta_netif = esp_netif_create_default_wifi_sta();
+}
+
+void WiFiAdapter::enableMDNS(std::string_view instance_name = "") {
+  const esp_err_t mdnsErr = mdns_init();
+
+  if (mdnsErr == ESP_OK || mdnsErr == ESP_ERR_INVALID_STATE) {
+    mdns_hostname_set(hostname_.data());
+
+    if (!instance_name.empty()) {
+      mdns_instance_name_set(instance_name.data());
+    }
+
+    logger::info("mDNS responder started. Access device under {}.local", hostname_);
+  } else {
+    logger::error("Error setting up mDNS responder: {}", esp_err_to_name(mdnsErr));
+  }
 }
 
 void WiFiAdapter::startAccessPoint(std::string_view ssid, std::string_view password = "") {
@@ -171,6 +262,8 @@ void WiFiAdapter::connectToWiFi(std::string_view ssid, std::string_view password
   esp_wifi_set_mode(WIFI_MODE_STA);
 
   esp_wifi_set_ps(WIFI_PS_MIN_MODEM);  // powe save mode
+
+  esp_netif_set_hostname(sta_netif, hostname_.data());
 
   esp_wifi_start();
 
@@ -259,16 +352,22 @@ void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) 
         esp_wifi_connect();  // wifi should be connected as soon as it starts in station mode
         break;
       case WIFI_EVENT_STA_DISCONNECTED:
+        network_state_.setStaDisconnected();
+
         if (stationDisconnectionCallback_ != nullptr) {
           stationDisconnectionCallback_(context_);
         }
         break;
       case WIFI_EVENT_AP_STACONNECTED:
+        network_state_.setApConnected();
+
         if (accessPointStartedCallback_ != nullptr) {
           accessPointStartedCallback_(context_);
         }
         break;
       case WIFI_EVENT_AP_STADISCONNECTED:
+        network_state_.setStaDisconnected();
+
         if (accessPointStoppedCallback_ != nullptr) {
           accessPointStoppedCallback_(context_);
         }
@@ -281,6 +380,9 @@ void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) 
       case IP_EVENT_STA_GOT_IP: {
         ip_event_got_ip_t* event_data = static_cast<ip_event_got_ip_t*>(data);
         app::network::IpAddress ip_address{event_data->ip_info.ip.addr};
+
+        network_state_.setStaConnected();
+
         if (stationConnectionCallback_ != nullptr) {
           stationConnectionCallback_(context_, ip_address);
         }
