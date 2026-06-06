@@ -208,3 +208,5 @@ void NVSAdapter::saveInt32(const char* key, int32_t value) {
     logger::error("Failed to save int32_t to NVS: {}", esp_err_to_name(err));
   }
 }
+
+}  // namespace app::storage

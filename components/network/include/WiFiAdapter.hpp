@@ -3,7 +3,9 @@
 #include <esp_netif.h>
 #include <esp_wifi.h>
 
-#include <functional>
+#include <cstdint>
+#include <optional>
+#include <string>
 #include <string_view>
 
 #include "IpAddress.hpp"

@@ -1,6 +1,5 @@
 #include "logger.hpp"
 
-#include <fmt/args.h>
 #include <fmt/chrono.h>
 
 #include <chrono>
