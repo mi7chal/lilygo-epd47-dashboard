@@ -1,21 +1,5 @@
 #include "NetworkManager.hpp"
 
-#include <esp_err.h>
-#include <esp_event.h>
-#include <esp_netif.h>
-#include <esp_wifi.h>
-#include <freertos/FreeRTOS.h>
-#include <freertos/event_groups.h>
-#include <lwip/inet.h>
-#include <mdns.h>
-#include <nvs_flash.h>
-
-#include <algorithm>
-#include <cctype>
-#include <cstdio>
-#include <cstring>
-#include <string>
-
 #include "Timer.hpp"
 #include "logger.hpp"
 
@@ -41,7 +25,8 @@ NetworkManager::NetworkManager()
     : network_state_(),
       wifi_(this, network_state_, kHostname),
       timeout_timer_(this, nullptr),
-      retry_timer_(this, retry_timer_callback) {}
+      retry_timer_(this, retry_timer_callback),
+      dns_server_() {}
 NetworkManager::~NetworkManager() { deinit(); };
 
 
@@ -50,14 +35,14 @@ void NetworkManager::init() {
   wifi_.registerEventHandler(NetworkEvent::StationConnectionEstablished, [](void* context, IpAddress ip_address) {
     logger::info("Connected to WiFi network with IP: {}", ip_address.to_string());
 
-    auto nm = static_cast<NetworkManager*>(context);
+    auto* nm = static_cast<NetworkManager*>(context);
 
-    nm->wifi_.enableMDNS("LilyGO Dashboard");
+    nm->wifi_.enableMDNS("LilyGO Dashboard");  // todo move
   });
 
   wifi_.registerEventHandler(NetworkEvent::StationDisconnected, [](void* context) {
     logger::debug("Disconnected from WiFi network");
-    auto nm = static_cast<NetworkManager*>(context);
+    auto* nm = static_cast<NetworkManager*>(context);
 
     if (nm->timeout_timer_.isActive()) {
       logger::debug("WiFi connection lost during connection attempt, retrying...");
@@ -66,17 +51,37 @@ void NetworkManager::init() {
     }
   });
 
-  wifi_.registerEventHandler(NetworkEvent::AccessPointStarted,
-                             [](void* context) { logger::info("Access Point started"); });
+  wifi_.registerEventHandler(NetworkEvent::AccessPointStarted, [](void* context) {
+    auto* nm = static_cast<NetworkManager*>(context);
 
-  wifi_.registerEventHandler(NetworkEvent::AccessPointStopped,
-                             [](void* context) { logger::info("Access Point stopped"); });
+    nm->wifi_.enableMDNS("LilyGO Dashboard AP");  // todo move
+
+    // Start DNS server with the IP of the access point
+    if (auto ap_info = nm->wifi_.getAccessPointInfo(); ap_info.has_value()) {
+      nm->dns_server_.start(ap_info->ip);
+    } else {
+      logger::error("Failed to get AP info, starting DNS with fallback IP 192.168.4.1");
+      nm->dns_server_.start(IpAddress{192, 168, 4, 1});
+    }
+
+    logger::info("Access Point started");
+  });
+
+  wifi_.registerEventHandler(NetworkEvent::AccessPointStopped, [](void* context) {
+    auto* nm = static_cast<NetworkManager*>(context);
+    nm->dns_server_.stop();
+
+    logger::info("Access Point stopped");
+  });
 }
 
-void NetworkManager::deinit() { wifi_.deinit(); }
+void NetworkManager::deinit() {
+  wifi_.deinit();
+  dns_server_.stop();
+}
 
 void NetworkManager::enableAccessPoint() {
-  app::logger::debug("Enabling WiFi Captive portal (Access Point) for configuration");
+  logger::debug("Enabling WiFi Captive portal (Access Point) with SSID: {}", kWifiPortalName);
 
   wifi_.startAccessPoint(kWifiPortalName, kWifiPortalPassword);
 }

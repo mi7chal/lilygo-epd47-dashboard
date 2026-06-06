@@ -29,8 +29,8 @@ enum class NetworkEvent {
   StationConnectionEstablished = IP_EVENT_STA_GOT_IP,  // we consider connection established when we get IP
                                                        // address, not when we connect to AP
   StationDisconnected = WIFI_EVENT_STA_DISCONNECTED,
-  AccessPointStarted = WIFI_EVENT_AP_STACONNECTED,
-  AccessPointStopped = WIFI_EVENT_AP_STADISCONNECTED,
+  AccessPointStarted = WIFI_EVENT_AP_START,
+  AccessPointStopped = WIFI_EVENT_AP_STOP,
 };
 
 class WiFiAdapter {

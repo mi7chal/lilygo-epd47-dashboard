@@ -3,6 +3,7 @@
 #include <optional>
 #include <string>
 
+#include "DnsServer.hpp"
 #include "NetworkState.hpp"
 #include "Timer.hpp"
 #include "WiFiAdapter.hpp"
@@ -37,6 +38,7 @@ class NetworkManager {
  private:
   NetworkState network_state_;
   WiFiAdapter wifi_;
+  DnsServer dns_server_;
 
   utils::Timer timeout_timer_;
   utils::Timer retry_timer_;

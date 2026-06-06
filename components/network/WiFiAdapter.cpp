@@ -162,6 +162,32 @@ void WiFiAdapter::initAccessPoint() {
   }
 
   ap_netif = esp_netif_create_default_wifi_ap();
+
+  if (ap_netif == nullptr) {
+    logger::error("Failed to create default WiFi AP network interface");
+    return;
+  }
+
+  // --- DHCP 114 ---
+  // https://datatracker.ietf.org/doc/rfc8910/
+  esp_err_t err = esp_netif_dhcps_stop(ap_netif);
+  if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
+    logger::warn("Failed to stop DHCP server for option configuration: {}", esp_err_to_name(err));
+  }
+
+  constexpr const char* kPortalUri = "http://192.168.4.1/";  // todo move to constant or more appropriate place
+  const std::uint8_t uri_len = static_cast<std::uint8_t>(std::strlen(kPortalUri));
+
+  err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, const_cast<char*>(kPortalUri),
+                               uri_len);
+  if (err != ESP_OK) {
+    logger::warn("Failed to set DHCP Option 114: {}", esp_err_to_name(err));
+  }
+
+  err = esp_netif_dhcps_start(ap_netif);
+  if (err != ESP_OK) {
+    logger::error("Failed to restart DHCP server: {}", esp_err_to_name(err));
+  }
 }
 
 void WiFiAdapter::initStation() {
@@ -358,22 +384,22 @@ void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) 
           stationDisconnectionCallback_(context_);
         }
         break;
-      case WIFI_EVENT_AP_STACONNECTED:
+      case WIFI_EVENT_AP_START:
         network_state_.setApConnected();
 
         if (accessPointStartedCallback_ != nullptr) {
           accessPointStartedCallback_(context_);
         }
         break;
-      case WIFI_EVENT_AP_STADISCONNECTED:
-        network_state_.setStaDisconnected();
+      case WIFI_EVENT_AP_STOP:
+        network_state_.setApDisconnected();
 
         if (accessPointStoppedCallback_ != nullptr) {
           accessPointStoppedCallback_(context_);
         }
         break;
       default:
-        logger::warn("Received unhandled WIFI_EVENT with id: %d", id);
+        logger::warn("Received unhandled WIFI_EVENT with id: {}", id);
     }
   } else if (base == IP_EVENT) {
     switch (id) {
@@ -389,10 +415,10 @@ void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) 
         break;
       }
       default:
-        logger::warn("Received unhandled IP_EVENT with id: %d", id);
+        logger::warn("Received unhandled IP_EVENT with id: {}", id);
     }
   } else {
-    logger::warn("Received event with unknown base: %s", base);
+    logger::warn("Received event with unknown base: {}", base);
   }
 }
 
