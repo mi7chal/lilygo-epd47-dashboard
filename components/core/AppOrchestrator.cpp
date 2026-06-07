@@ -32,6 +32,7 @@ bool AppOrchestrator::initApp() {
     is_config_mode = true;
   }
 
+  // todo check for geocode sync required
 
   // todo init display
 
