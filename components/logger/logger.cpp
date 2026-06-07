@@ -49,6 +49,9 @@ std::string_view local_time_view() {
 
 }  // namespace
 
+void set_log_level(LogLevel level) { esp_log_level_set("*", static_cast<esp_log_level_t>(level)); }
+
+namespace detail {
 
 void write_impl(LogLevel level, const std::source_location& location, fmt::string_view format, fmt::format_args args) {
   fmt::memory_buffer line;
@@ -60,5 +63,7 @@ void write_impl(LogLevel level, const std::source_location& location, fmt::strin
 
   esp_log_write(static_cast<esp_log_level_t>(level), tag_for(location), "%s", line.data());
 }
+
+}  // namespace detail
 
 }  // namespace app::logger

@@ -59,7 +59,7 @@ void NetworkManager::init() {
     if (auto ap_info = nm->wifi_.getAccessPointInfo(); ap_info.has_value()) {
       nm->dns_server_.start(ap_info->ip);
     } else {
-      logger::error("Failed to get AP info, starting DNS with fallback IP 192.168.4.1");
+      logger::warn("Failed to get AP info, starting DNS with fallback IP 192.168.4.1");
       nm->dns_server_.start(IpAddress{192, 168, 4, 1});
     }
 
@@ -72,6 +72,8 @@ void NetworkManager::init() {
 
     logger::info("Access Point stopped");
   });
+
+  logger::info("NetworkManager initialized");
 }
 
 void NetworkManager::deinit() {

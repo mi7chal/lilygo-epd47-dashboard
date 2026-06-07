@@ -8,7 +8,7 @@
 namespace app::logger {
 
 // cusotm LogLevel enum to avoid direct depenedency and be future-proof
-enum class LogLevel : int {
+enum class LogLevel {
   Debug = ESP_LOG_DEBUG,
   Info = ESP_LOG_INFO,
   Warn = ESP_LOG_WARN,
@@ -18,13 +18,7 @@ enum class LogLevel : int {
 
 void set_log_level(LogLevel level = LogLevel::Info);
 
-// hiding write_impl (and other helper functions) to keep the public interface hermetic
-namespace detail {
-
-void write_impl(LogLevel level, const std::source_location& location, fmt::string_view format,
-                fmt::format_args args = {});
-
-}  // namespace detail
+// hiding write_impl to keep the public interface hermetic
 
 template <LogLevel Level, typename... Args>
 void log(fmt::format_string<Args...> fmt_str, Args&&... args,
@@ -51,5 +45,12 @@ template <typename... Args>
 void debug(fmt::format_string<Args...> f, Args&&... a) {
   log<LogLevel::Debug>(f, std::forward<Args>(a)...);
 }
+
+namespace detail {
+
+void write_impl(LogLevel level, const std::source_location& location, fmt::string_view format,
+                fmt::format_args args = {});
+
+}  // namespace detail
 
 }  // namespace app::logger

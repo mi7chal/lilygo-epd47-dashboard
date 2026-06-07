@@ -44,7 +44,7 @@ void StorageManager::init() {
 
   initialized_ = true;
 
-  logger::info("Configuration loaded to RAM.");
+  logger::info("Storage initialized. Configuration values loaded to RAM.");
   logger::debug("Loaded values: ssid=\"{}\", pass=\"{}\", token=\"***\"", ssid_.c_str(), password_.c_str());
 }
 
@@ -75,8 +75,7 @@ void StorageManager::saveNetworkCredentials(const std::string& new_ssid, const s
 
   nvs_.commit();
 
-  logger::info("Saved network credentials for {}", new_ssid);
-  logger::debug("Verification readback: ssid=\"{}\", pass=\"{}\"", new_ssid, new_password);
+  logger::debug("Saved WiFi credentials: ssid=\"{}\", pass=\"{}\"", new_ssid, new_password);
 }
 
 void StorageManager::saveLocationAddress(const std::string& new_address_line, const std::string& new_city,
@@ -88,7 +87,7 @@ void StorageManager::saveLocationAddress(const std::string& new_address_line, co
 
   nvs_.commit();
 
-  logger::info("Saved location address.");
+  logger::debug("Saved location address.");
 }
 
 void StorageManager::saveAppSettings(const std::string& new_token, const std::string& new_lat,
@@ -103,7 +102,7 @@ void StorageManager::saveAppSettings(const std::string& new_token, const std::st
 
   nvs_.commit();
 
-  logger::info("Saved application settings: token=***, lat={}, lon={}", new_lat.c_str(), new_lon.c_str());
+  logger::debug("Saved application settings: token=\"***\", lat={}, lon={}", new_lat.c_str(), new_lon.c_str());
 }
 
 void StorageManager::saveTimezoneOffsetSeconds(int32_t new_timezone_offset_seconds) {
@@ -111,7 +110,7 @@ void StorageManager::saveTimezoneOffsetSeconds(int32_t new_timezone_offset_secon
 
   nvs_.commit();
 
-  logger::info("Saved timezone offset: {}", new_timezone_offset_seconds);
+  logger::debug("Saved timezone offset: {}", new_timezone_offset_seconds);
 }
 
 

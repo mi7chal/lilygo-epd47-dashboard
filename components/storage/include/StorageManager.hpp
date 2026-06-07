@@ -8,29 +8,6 @@
 namespace app::storage {
 
 class StorageManager {
- private:
-  static constexpr const char* NVS_NAMESPACE = "lilygo_dash";
-  NVSAdapter nvs_{NVS_NAMESPACE};
-
-  bool initialized_ = false;
-
-  std::string ssid_;
-  std::string password_;
-  std::string api_token_;
-  std::string address_line_;
-  std::string city_;
-  std::string postal_code_;
-  std::string country_;
-  std::string latitude_;
-  std::string longitude_;
-
-  int32_t timezone_offset_seconds_ = 0;
-  uint8_t geocodePending_ = 0;
-
-  void saveStringIfChanged(const char* key, std::string& currentValue, const std::string& newValue);
-  void saveInt32IfChanged(const char* key, int32_t& currentValue, int32_t newValue);
-  void saveU8IfChanged(const char* key, uint8_t& currentValue, uint8_t newValue);
-
  public:
   StorageManager() = default;
 
@@ -55,5 +32,28 @@ class StorageManager {
   [[nodiscard]] bool isGeocodePending() const { return geocodePending_ != 0; };
 
   void setGeocodePending(bool pending);
+
+ private:
+  static constexpr const char* NVS_NAMESPACE = "lilygo_dash";
+  NVSAdapter nvs_{NVS_NAMESPACE};
+
+  bool initialized_ = false;
+
+  std::string ssid_;
+  std::string password_;
+  std::string api_token_;
+  std::string address_line_;
+  std::string city_;
+  std::string postal_code_;
+  std::string country_;
+  std::string latitude_;
+  std::string longitude_;
+
+  int32_t timezone_offset_seconds_ = 0;
+  uint8_t geocodePending_ = 0;
+
+  void saveStringIfChanged(const char* key, std::string& currentValue, const std::string& newValue);
+  void saveInt32IfChanged(const char* key, int32_t& currentValue, int32_t newValue);
+  void saveU8IfChanged(const char* key, uint8_t& currentValue, uint8_t newValue);
 };
 }  // namespace app::storage
