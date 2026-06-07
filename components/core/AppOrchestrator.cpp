@@ -23,6 +23,8 @@ bool AppOrchestrator::initApp() {
 
   network_.connectToWiFi(storage_.getSSID(), storage_.getPassword());  // todo handle empty ssid case
 
+  hardware_config_.syncTime();
+
   auto wifi_info = network_.waitForWiFiConnectionInfo();
 
   if (!wifi_info.has_value()) {
@@ -31,7 +33,7 @@ bool AppOrchestrator::initApp() {
   }
 
 
-  // todo init time and display
+  // todo init display
 
   // todo fetch weather and display it
 

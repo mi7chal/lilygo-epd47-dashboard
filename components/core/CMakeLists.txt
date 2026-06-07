@@ -4,5 +4,5 @@ idf_component_register(
     SRCS "AppCore.cpp" 
     INCLUDE_DIRS "include"
     REQUIRES storage network 
-    PRIV_REQUIRES logger utils
+    PRIV_REQUIRES logger utils lwip
 )

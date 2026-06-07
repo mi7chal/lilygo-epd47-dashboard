@@ -1,16 +1,30 @@
 #include "HardwareConfigFacade.hpp"
 
+#include <esp_netif_sntp.h>
+// #include <esp_sntp.h>
+// #include <esp_system.h>
+#include <esp_attr.h>
+
+#include <chrono>
+
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "logger.hpp"
 
+
 namespace app::core {
 
 namespace {
 constexpr gpio_num_t kConfigButtonPin = GPIO_NUM_21;
 }  // namespace
+
+
+// todo add deinit
+// todo consider separating this class into multiple ones
+HardwareConfigFacade::HardwareConfigFacade() = default;
+HardwareConfigFacade::~HardwareConfigFacade() = default;
 
 bool HardwareConfigFacade::initHardware() {
   const esp_err_t netifErr = esp_netif_init();
@@ -44,12 +58,37 @@ bool HardwareConfigFacade::isButtonPressed() {
       return false;
     }
 
-    logger::debug("Config button initialized on GPIO {}", kConfigButtonPin);
+    logger::debug("Config button initialized on GPIO {}", static_cast<int>(kConfigButtonPin));
 
     button_initialized_ = true;
   }
 
   return gpio_get_level(GPIO_NUM_21) == 0;
 }
+
+
+void HardwareConfigFacade::syncTime() {
+  // todo research and consider dhcp sntp
+  if (isTimeSyncronized()) {
+    logger::debug("Time is already synchronized, skipping sync");
+  }
+
+  // todo consider using multiple serveers and/or dhcp provided servers. also consider migrating to openweather ntp
+  // todo handle errors, netif sntp init state etc.
+
+  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+  esp_netif_sntp_init(&config);
+}
+
+
+bool HardwareConfigFacade::isTimeSyncronized() const {
+  using namespace std::chrono;
+  auto now = system_clock::now();
+
+  auto kMinValidDate = sys_days{2024y / January / 1d};
+
+  return now < kMinValidDate;
+}
+
 
 }  // namespace app::core
