@@ -42,6 +42,11 @@ class NetworkManager {
 
   utils::Timer timeout_timer_;
   utils::Timer retry_timer_;
+
+  std::string target_ssid_;
+  std::string target_password_;
+
+  static void retry_timer_callback(void* context);
 };
 
 }  // namespace app::network

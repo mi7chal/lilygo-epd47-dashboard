@@ -27,7 +27,6 @@ class AppOrchestrator {
   bool initApp();
 
  private:
-  bool button_initialized{false};
   HardwareConfigFacade hardware_config_;
   storage::StorageManager storage_;
   network::NetworkManager network_;

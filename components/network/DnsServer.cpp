@@ -145,8 +145,9 @@ void DnsServer::runLoop() {
 
     if (server_socket_ != -1) {
       close(server_socket_);
+      server_socket_ = -1;
     }
-
+    is_running_ = false;
     return;
   }
 
@@ -163,6 +164,15 @@ void DnsServer::runLoop() {
     // receive the query (blocking)
     const int len = recvfrom(server_socket_, rx_buffer.data(), rx_buffer.size(), 0,
                              reinterpret_cast<struct sockaddr*>(&source_addr), &socklen);
+
+    if (len < 0) {
+      if (!is_running_) {
+        break;
+      }
+      logger::error("DNS recvfrom failed: {}", errno);
+      vTaskDelay(pdMS_TO_TICKS(50));
+      continue;
+    }
 
     if (len < static_cast<int>(sizeof(DnsHeader))) {
       continue;  // not a valid DNS packet, ignore

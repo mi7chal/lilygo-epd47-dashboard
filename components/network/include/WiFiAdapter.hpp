@@ -42,16 +42,14 @@ class WiFiAdapter {
   // pointers instead of std::function to avoid dynamic memory allocation and
   // adiitional cpu/memory overhead
   using StationConnectionCallback = void (*)(void* context, IpAddress ip_address);
-  using StationDisconnectionCallback = void (*)(void* context);
-  using AccessPointStartedCallback = void (*)(void* context);
-  using AccessPointStoppedCallback = void (*)(void* context);
+  using SimpleEventCallback = void (*)(void* context);
 
   WiFiAdapter(void* context, NetworkState& network_state, std::string_view hostname);
   ~WiFiAdapter() noexcept;
   WiFiAdapter(const WiFiAdapter&) = delete;
   WiFiAdapter& operator=(const WiFiAdapter&) = delete;
-  WiFiAdapter(WiFiAdapter&& other) noexcept;
-  WiFiAdapter& operator=(WiFiAdapter&& other) noexcept;
+  WiFiAdapter(WiFiAdapter&& other) = delete;
+  WiFiAdapter& operator=(WiFiAdapter&& other) = delete;
 
   bool init();
   void deinit();
@@ -65,9 +63,7 @@ class WiFiAdapter {
   void disconnectFromWiFi();
 
   void registerEventHandler(NetworkEvent event, StationConnectionCallback cb);
-  void registerEventHandler(NetworkEvent event, StationDisconnectionCallback cb);
-  void registerEventHandler(NetworkEvent event, AccessPointStartedCallback cb);
-  void registerEventHandler(NetworkEvent event, AccessPointStoppedCallback cb);
+  void registerEventHandler(NetworkEvent event, SimpleEventCallback cb);
 
   /**
    * @brief unregisters (resets) handler for given event
@@ -100,9 +96,9 @@ class WiFiAdapter {
   // Using separate fields for each callback is more memory-efficient (no
   // dynamic memory, no containers overhead)
   StationConnectionCallback stationConnectionCallback_{nullptr};
-  StationDisconnectionCallback stationDisconnectionCallback_{nullptr};
-  AccessPointStartedCallback accessPointStartedCallback_{nullptr};
-  AccessPointStoppedCallback accessPointStoppedCallback_{nullptr};
+  SimpleEventCallback stationDisconnectionCallback_{nullptr};
+  SimpleEventCallback accessPointStartedCallback_{nullptr};
+  SimpleEventCallback accessPointStoppedCallback_{nullptr};
 
   esp_event_handler_instance_t wifi_event_instance;
   esp_event_handler_instance_t ip_event_instance;

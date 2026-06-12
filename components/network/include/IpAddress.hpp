@@ -32,8 +32,6 @@ class IpAddress {
 
   constexpr bool operator==(const IpAddress& other) const { return m_bytes == other.m_bytes; }
 
-  constexpr uint8_t operator[](size_t index) const { return m_bytes.at(index); }
-
   std::string to_string() const { return fmt::to_string(*this); }
 };
 
@@ -46,7 +44,7 @@ class IpAddress {
  */
 template <>
 struct fmt::formatter<app::network::IpAddress> {
-  constexpr auto parse(format_parse_context& ctx) -> decltype(ctx.begin()) {}
+  constexpr auto parse(format_parse_context& ctx) -> decltype(ctx.begin()) { return ctx.begin(); }
 
   template <typename FormatContext>
   auto format(const app::network::IpAddress& ip, FormatContext& ctx) const -> decltype(ctx.out()) {

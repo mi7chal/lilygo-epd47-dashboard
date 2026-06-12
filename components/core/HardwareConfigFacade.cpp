@@ -3,11 +3,11 @@
 #include <esp_netif_sntp.h>
 // #include <esp_sntp.h>
 // #include <esp_system.h>
+#include <driver/gpio.h>
 #include <esp_attr.h>
 
 #include <chrono>
 
-#include "driver/gpio.h"
 #include "esp_err.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -87,7 +87,7 @@ bool HardwareConfigFacade::isTimeSyncronized() const {
 
   auto kMinValidDate = sys_days{2024y / January / 1d};
 
-  return now < kMinValidDate;
+  return now >= kMinValidDate;
 }
 
 

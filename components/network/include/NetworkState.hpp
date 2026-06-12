@@ -18,6 +18,11 @@ class NetworkState {
     }
   }
 
+  NetworkState(const NetworkState&) = delete;
+  NetworkState& operator=(const NetworkState&) = delete;
+  NetworkState(NetworkState&&) = delete;
+  NetworkState& operator=(NetworkState&&) = delete;
+
   [[nodiscard]] bool isConnected() const {
     EventBits_t bits = xEventGroupGetBits(group_);
     return (bits & (kStaConnectedBit | kApConnectedBit)) != 0;

@@ -1,8 +1,8 @@
 # FILE(GLOB_RECURSE app_sources ${CMAKE_SOURCE_DIR}/src/*.*)
 
 idf_component_register(
-    SRCS "AppCore.cpp" 
+    SRCS "AppCore.cpp" "AppOrchestrator.cpp" "HardwareConfigFacade.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES storage network 
+    REQUIRES storage network esp_driver_gpio
     PRIV_REQUIRES logger utils lwip
 )

@@ -12,20 +12,23 @@ constexpr const char* kWifiPortalName = "LilyGO Dashboard";
 constexpr const char* kWifiPortalPassword = "lilygo678";
 constexpr std::uint32_t kWifiConnectionTimeoutSeconds = 30U;
 
-void retry_timer_callback(void* context) {
-  auto* nm = static_cast<NetworkManager*>(context);
-  nm->connectToWiFi(kWifiPortalName, kWifiPortalPassword);
-}
+
 
 }  // namespace
+
+
+void NetworkManager::retry_timer_callback(void* context) {
+  auto* nm = static_cast<NetworkManager*>(context);
+  nm->connectToWiFi(nm->target_ssid_, nm->target_password_);
+}
 
 
 NetworkManager::NetworkManager()
     : network_state_(),
       wifi_(this, network_state_, kHostname),
+      dns_server_(),
       timeout_timer_(this, nullptr),
-      retry_timer_(this, retry_timer_callback),
-      dns_server_() {}
+      retry_timer_(this, retry_timer_callback) {}
 NetworkManager::~NetworkManager() { deinit(); };
 
 
@@ -87,7 +90,7 @@ void NetworkManager::enableAccessPoint() {
   wifi_.startAccessPoint(kWifiPortalName, kWifiPortalPassword);
 }
 
-std::optional<AccessPointInfo> NetworkManager::waitForAccessPointInfo(uint32_t timeout_ms = 30000) const {
+std::optional<AccessPointInfo> NetworkManager::waitForAccessPointInfo(uint32_t timeout_ms) const {
   if (!network_state_.waitForApActive(timeout_ms)) {
     return std::nullopt;
   }
@@ -97,6 +100,9 @@ std::optional<AccessPointInfo> NetworkManager::waitForAccessPointInfo(uint32_t t
 
 void NetworkManager::connectToWiFi(const std::string& ssid, const std::string& password) {
   logger::debug("Attempting to connect to WiFi network: {}", ssid);
+
+  target_ssid_ = ssid;
+  target_password_ = password;
 
   timeout_timer_.startOnce(kWifiConnectionTimeoutSeconds * 1000U);
 

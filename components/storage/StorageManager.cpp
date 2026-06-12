@@ -28,6 +28,7 @@ void StorageManager::init() {
   }
 
   nvs_.init();
+  nvs_.open(NVSOpenMode::ReadWrite);
 
   ssid_ = nvs_.readString(kSsidKey, "");
   password_ = nvs_.readString(kPasswordKey, "");
@@ -41,6 +42,7 @@ void StorageManager::init() {
   latitude_ = nvs_.readString(kLatitudeKey, "52.2297");
   longitude_ = nvs_.readString(kLongitudeKey, "21.0122");
   timezone_offset_seconds_ = nvs_.readInt32("timezone_offset", 0);
+  geocodePending_ = nvs_.readU8(kGeofencePendingKey, 0);
 
   initialized_ = true;
 

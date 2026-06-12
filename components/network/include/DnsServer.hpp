@@ -16,6 +16,8 @@ class DnsServer {
 
   DnsServer(const DnsServer&) = delete;
   DnsServer& operator=(const DnsServer&) = delete;
+  DnsServer(DnsServer&&) = delete;
+  DnsServer& operator=(DnsServer&&) = delete;
 
   bool start(IpAddress ip_address);
   void stop();

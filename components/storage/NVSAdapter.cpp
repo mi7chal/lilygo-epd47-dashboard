@@ -46,8 +46,13 @@ bool NVSAdapter::init() {
   return is_initialized_;
 }
 
-void NVSAdapter::open(NVSOpenMode mode = NVSOpenMode::ReadOnly) {
-  if (is_initialized_) {
+void NVSAdapter::open(NVSOpenMode mode) {
+  if (!is_initialized_) {
+    logger::error("Cannot open NVS handle: flash is not initialized. Call init() first.");
+    return;
+  }
+
+  if (isOpen()) {
     return;
   }
 
@@ -56,8 +61,6 @@ void NVSAdapter::open(NVSOpenMode mode = NVSOpenMode::ReadOnly) {
     logger::error("Failed to open NVS handle: {}", esp_err_to_name(err));
     return;
   }
-
-  is_initialized_ = true;
 }
 
 void NVSAdapter::close() {

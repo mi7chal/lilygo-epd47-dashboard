@@ -15,40 +15,7 @@ WiFiAdapter::WiFiAdapter(void* context, NetworkState& network_state, std::string
 
 WiFiAdapter::~WiFiAdapter() noexcept { deinit(); }
 
-WiFiAdapter::WiFiAdapter(WiFiAdapter&& other) noexcept
-    : context_(other.context_),
-      network_state_(other.network_state_),
-      initialized_(other.initialized_),
-      sta_netif(other.sta_netif),
-      ap_netif(other.ap_netif),
-      wifi_event_group_(other.wifi_event_group_),
-      hostname_(std::move(other.hostname_)),
-      stationConnectionCallback_(other.stationConnectionCallback_),
-      stationDisconnectionCallback_(other.stationDisconnectionCallback_),
-      accessPointStartedCallback_(other.accessPointStartedCallback_),
-      accessPointStoppedCallback_(other.accessPointStoppedCallback_),
-      wifi_event_instance(other.wifi_event_instance),
-      ip_event_instance(other.ip_event_instance) {
-  // Invalidate the other instance to prevent double cleanup
-  other.context_ = nullptr;
-  other.initialized_ = false;
-  other.sta_netif = nullptr;
-  other.ap_netif = nullptr;
-  other.wifi_event_group_ = nullptr;
-  other.stationConnectionCallback_ = nullptr;
-  other.stationDisconnectionCallback_ = nullptr;
-  other.accessPointStartedCallback_ = nullptr;
-  other.accessPointStoppedCallback_ = nullptr;
-  other.wifi_event_instance = nullptr;
-  other.ip_event_instance = nullptr;
 
-  // todo
-}
-
-WiFiAdapter& WiFiAdapter::operator=(WiFiAdapter&& other) noexcept {
-  // todo
-  return *this;
-}
 
 bool WiFiAdapter::init() {
   if (initialized_) {
@@ -204,7 +171,7 @@ void WiFiAdapter::initStation() {
   sta_netif = esp_netif_create_default_wifi_sta();
 }
 
-void WiFiAdapter::enableMDNS(std::string_view instance_name = "") {
+void WiFiAdapter::enableMDNS(std::string_view instance_name) {
   const esp_err_t mdnsErr = mdns_init();
 
   if (mdnsErr == ESP_OK || mdnsErr == ESP_ERR_INVALID_STATE) {
@@ -318,31 +285,21 @@ void WiFiAdapter::registerEventHandler(NetworkEvent event, StationConnectionCall
   stationConnectionCallback_ = cb;
 }
 
-void WiFiAdapter::registerEventHandler(NetworkEvent event, StationDisconnectionCallback cb) {
-  if (event != NetworkEvent::StationDisconnected) {
-    logger::warn("Attempted to register StationDisconnectionCallback for non-StationDisconnected event");
-    return;
+void WiFiAdapter::registerEventHandler(NetworkEvent event, SimpleEventCallback cb) {
+  switch (event) {
+    case NetworkEvent::StationDisconnected:
+      stationDisconnectionCallback_ = cb;
+      break;
+    case NetworkEvent::AccessPointStarted:
+      accessPointStartedCallback_ = cb;
+      break;
+    case NetworkEvent::AccessPointStopped:
+      accessPointStoppedCallback_ = cb;
+      break;
+    default:
+      logger::warn("Attempted to register SimpleEventCallback for unsupported event");
+      break;
   }
-
-  stationDisconnectionCallback_ = cb;
-}
-
-void WiFiAdapter::registerEventHandler(NetworkEvent event, AccessPointStartedCallback cb) {
-  if (event != NetworkEvent::AccessPointStarted) {
-    logger::warn("Attempted to register AccessPointStartedCallback for non-AccessPointStarted event");
-    return;
-  }
-
-  accessPointStartedCallback_ = cb;
-}
-
-void WiFiAdapter::registerEventHandler(NetworkEvent event, AccessPointStoppedCallback cb) {
-  if (event != NetworkEvent::AccessPointStopped) {
-    logger::warn("Attempted to register AccessPointStoppedCallback for non-AccessPointStopped event");
-    return;
-  }
-
-  accessPointStoppedCallback_ = cb;
 }
 
 void WiFiAdapter::unregisterEventHandler(NetworkEvent event) {

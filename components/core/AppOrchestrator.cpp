@@ -1,11 +1,12 @@
 #include "AppOrchestrator.hpp"
 
-#include "driver/gpio.h"
+#include <driver/gpio.h>
+
 #include "logger.hpp"
 
 namespace app::core {
 
-AppOrchestrator::AppOrchestrator() : storage_(), network_(), hardware_config_() {}
+AppOrchestrator::AppOrchestrator() : hardware_config_(), storage_(), network_() {}
 
 AppOrchestrator::~AppOrchestrator() = default;
 
@@ -25,12 +26,13 @@ bool AppOrchestrator::initApp() {
 
   hardware_config_.syncTime();
 
-  auto wifi_info = network_.waitForWiFiConnectionInfo();
+  auto wifi_info = network_.waitForWiFiConnectionInfo();  // todo don't wait if improper credentials
 
   if (!wifi_info.has_value()) {
     logger::warn("WiFi connection failed, entering configuration mode");
     is_config_mode = true;
   }
+
 
   // todo check for geocode sync required
 
@@ -38,7 +40,7 @@ bool AppOrchestrator::initApp() {
 
   // todo fetch weather and display it
 
-  return true;
+  return is_config_mode;
 }
 
 
