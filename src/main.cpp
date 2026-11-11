@@ -4,22 +4,21 @@
 #error "Please enable PSRAM in sdkconfig/menuconfig!"
 #endif
 
-#include "AppCore.hpp"
-#include "AppOrchestrator.hpp"
+#include <esp_attr.h>
+
+#include "Application.hpp"
+#include "LifecycleManager.hpp"
+#include "RtcAppState.hpp"
 #include "logger.hpp"
 
-app::core::AppOrchestrator orchestrator{};
-app::core::AppCore core{orchestrator};
+RTC_DATA_ATTR static app::core::RtcAppState rtc_app_state;
 
-void app_core_task_f(void* context) {
-  auto* core = static_cast<app::core::AppCore*>(context);
-  core->run();
-  vTaskDelete(nullptr);  // Delete the task when done
-}
+app::core::LifecycleManager lifecycle_manager{rtc_app_state};
+app::core::Application application{lifecycle_manager};
 
 extern "C" void app_main() {
   app::logger::set_log_level(app::logger::LogLevel::Info);
-  app::logger::info("System starting...");
+  app::logger::info("Application starting (boot count: {})...", rtc_app_state.getBootCount());
 
-  xTaskCreatePinnedToCore(app_core_task_f, "app_core_task", 8192, &core, 2, nullptr, 1);
+  application.run();
 }

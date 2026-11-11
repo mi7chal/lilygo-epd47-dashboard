@@ -4,12 +4,12 @@
 #include <fmt/core.h>
 
 #include <source_location>
-#include <utility>
 #include <type_traits>
+#include <utility>
 
 namespace app::logger {
 
-// cusotm LogLevel enum to avoid direct depenedency and be future-proof
+// cusotm LogLevel enum to avoid direct depenedency
 enum class LogLevel {
   Debug = ESP_LOG_DEBUG,
   Info = ESP_LOG_INFO,
@@ -31,10 +31,8 @@ struct format_string_with_location {
   std::source_location loc;
 
   template <typename T>
-  consteval format_string_with_location(
-      const T& f,
-      std::source_location loc = std::source_location::current()
-  ) : fmt(f), loc(loc) {}
+  consteval format_string_with_location(const T& f, std::source_location loc = std::source_location::current())
+      : fmt(f), loc(loc) {}
 };
 
 }  // namespace detail

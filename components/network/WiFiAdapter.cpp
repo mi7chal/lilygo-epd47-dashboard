@@ -3,6 +3,8 @@
 #include <mdns.h>
 
 #include <algorithm>
+#include <cstring>
+#include <utility>
 
 #include "logger.hpp"
 
@@ -10,11 +12,10 @@
 
 namespace app::network {
 
-WiFiAdapter::WiFiAdapter(void* context, NetworkState& network_state, std::string_view hostname)
-    : context_(context), network_state_(network_state), hostname_(hostname) {}
+WiFiAdapter::WiFiAdapter(void* context, NetworkState& network_state, std::string hostname)
+    : context_(context), network_state_(network_state), hostname_(std::move(hostname)) {}
 
 WiFiAdapter::~WiFiAdapter() noexcept { deinit(); }
-
 
 
 bool WiFiAdapter::init() {
@@ -22,30 +23,30 @@ bool WiFiAdapter::init() {
     return true;
   }
 
-  wifi_event_group_ = xEventGroupCreate();
-  if (wifi_event_group_ == nullptr) {
-    logger::error("Failed to create WiFi event group");
-    return false;
-  }
-
-  esp_err_t err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &WiFiAdapter::esp_event_dispatcher,
-                                                      this, &wifi_event_instance);
+  esp_err_t err = esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &WiFiAdapter::espDispatchEvent,
+                                                      this, &wifi_event_delegating_handler_);
 
   if (err != ESP_OK) {
     logger::error("Failed to register WIFI_EVENT handler: {}", esp_err_to_name(err));
     return false;
   }
 
-  err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &WiFiAdapter::esp_event_dispatcher, this,
-                                            &ip_event_instance);
+  err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &WiFiAdapter::espDispatchEvent, this,
+                                            &ip_event_delegating_handler_);
 
   if (err != ESP_OK) {
     logger::error("Failed to register IP_EVENT handler: {}", esp_err_to_name(err));
+    unregisterEspHandlers();
     return false;
   }
 
   wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-  esp_wifi_init(&cfg);
+  err = esp_wifi_init(&cfg);
+  if (err != ESP_OK) {
+    logger::error("Failed to init WiFi: {}", esp_err_to_name(err));
+    unregisterEspHandlers();
+    return false;
+  }
 
   esp_wifi_set_storage(WIFI_STORAGE_RAM);  // config unknown at compile-time is stored in StorageManager
 
@@ -53,22 +54,40 @@ bool WiFiAdapter::init() {
   return true;
 }
 
+void WiFiAdapter::unregisterEspHandlers() {
+  if (wifi_event_delegating_handler_ != nullptr) {
+    esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_delegating_handler_);
+    wifi_event_delegating_handler_ = nullptr;
+  }
+  if (ip_event_delegating_handler_ != nullptr) {
+    esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_delegating_handler_);
+    ip_event_delegating_handler_ = nullptr;
+  }
+}
+
 void WiFiAdapter::deinit() {
+  if (!initialized_) {
+    return;
+  }
+
+  // handlers first: no callback may reach the owner during teardown
+  unregisterEspHandlers();
+
   esp_wifi_stop();
 
   esp_wifi_deinit();
 
+  // plain esp_netif_destroy would leave the WiFi glue dangling
   if (sta_netif != nullptr) {
-    esp_netif_destroy(sta_netif);
+    esp_netif_destroy_default_wifi(sta_netif);
     sta_netif = nullptr;
   }
   if (ap_netif != nullptr) {
-    esp_netif_destroy(ap_netif);
+    esp_netif_destroy_default_wifi(ap_netif);
     ap_netif = nullptr;
   }
 
-  esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, wifi_event_instance);
-  esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_instance);
+  initialized_ = false;
 }
 
 std::optional<WiFiConnectionInfo> WiFiAdapter::getWiFiConnectionInfo() const {
@@ -76,21 +95,21 @@ std::optional<WiFiConnectionInfo> WiFiAdapter::getWiFiConnectionInfo() const {
     return std::nullopt;
   }
 
-  wifi_ap_record_t apRecord{};
-  if (esp_wifi_sta_get_ap_info(&apRecord) != ESP_OK) {
+  wifi_ap_record_t ap_record{};
+  if (esp_wifi_sta_get_ap_info(&ap_record) != ESP_OK) {
     logger::warn("Failed to read STA info for connection info");
     return std::nullopt;
   }
 
-  esp_netif_ip_info_t ipInfo{};
-  if (esp_netif_get_ip_info(sta_netif, &ipInfo) != ESP_OK) {
+  esp_netif_ip_info_t ip_info{};
+  if (esp_netif_get_ip_info(sta_netif, &ip_info) != ESP_OK) {
     logger::warn("Failed to read IP info for connection info");
     return std::nullopt;
   }
 
   // technically hostname could be gotten from netif too, but it's already stored
-  return WiFiConnectionInfo{std::string(reinterpret_cast<const char*>(apRecord.ssid)), std::string{hostname_},
-                            IpAddress{ipInfo.ip.addr}, apRecord.rssi};
+  return WiFiConnectionInfo{std::string(reinterpret_cast<const char*>(ap_record.ssid)), std::string{hostname_},
+                            IpAddress{ip_info.ip.addr}, ap_record.rssi};
 }
 
 std::optional<AccessPointInfo> WiFiAdapter::getAccessPointInfo() const {
@@ -111,7 +130,8 @@ std::optional<AccessPointInfo> WiFiAdapter::getAccessPointInfo() const {
   }
 
   // technically hostname could be gotten from netif too, but it's already stored
-  return AccessPointInfo{std::string(reinterpret_cast<const char*>(ap_config.ap.ssid)),
+  // ssid is not null-terminated when it uses all 32 bytes
+  return AccessPointInfo{std::string(reinterpret_cast<const char*>(ap_config.ap.ssid), ap_config.ap.ssid_len),
                          std::string(reinterpret_cast<const char*>(ap_config.ap.password)), std::string{hostname_},
                          IpAddress{ipInfo.ip.addr}};
 }
@@ -142,13 +162,17 @@ void WiFiAdapter::initAccessPoint() {
     logger::warn("Failed to stop DHCP server for option configuration: {}", esp_err_to_name(err));
   }
 
-  constexpr const char* kPortalUri = "http://192.168.4.1/";  // todo move to constant or more appropriate place
-  const std::uint8_t uri_len = static_cast<std::uint8_t>(std::strlen(kPortalUri));
+  esp_netif_ip_info_t ip_info{};
+  if (esp_netif_get_ip_info(ap_netif, &ip_info) != ESP_OK) {
+    logger::warn("Failed to read AP IP, DHCP Option 114 not set");
+  } else {
+    portal_uri_ = fmt::format("http://{}/", IpAddress{ip_info.ip.addr});
 
-  err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, const_cast<char*>(kPortalUri),
-                               uri_len);
-  if (err != ESP_OK) {
-    logger::warn("Failed to set DHCP Option 114: {}", esp_err_to_name(err));
+    err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, portal_uri_.data(),
+                                 static_cast<std::uint32_t>(portal_uri_.size()));
+    if (err != ESP_OK) {
+      logger::warn("Failed to set DHCP Option 114: {}", esp_err_to_name(err));
+    }
   }
 
   err = esp_netif_dhcps_start(ap_netif);
@@ -171,14 +195,14 @@ void WiFiAdapter::initStation() {
   sta_netif = esp_netif_create_default_wifi_sta();
 }
 
-void WiFiAdapter::enableMDNS(std::string_view instance_name) {
+void WiFiAdapter::enableMDNS(const std::string& instance_name) {
   const esp_err_t mdnsErr = mdns_init();
 
   if (mdnsErr == ESP_OK || mdnsErr == ESP_ERR_INVALID_STATE) {
-    mdns_hostname_set(hostname_.data());
+    mdns_hostname_set(hostname_.c_str());
 
     if (!instance_name.empty()) {
-      mdns_instance_name_set(instance_name.data());
+      mdns_instance_name_set(instance_name.c_str());
     }
 
     logger::info("mDNS responder started. Access device under {}.local", hostname_);
@@ -230,7 +254,7 @@ void WiFiAdapter::stopAccessPoint() {
   esp_wifi_stop();
 }
 
-void WiFiAdapter::connectToWiFi(std::string_view ssid, std::string_view password) {
+void WiFiAdapter::connectToNetwork(std::string_view ssid, std::string_view password) {
   if (!initialized_) {
     logger::warn("Attempted to connect without initialization");
     return;
@@ -240,9 +264,11 @@ void WiFiAdapter::connectToWiFi(std::string_view ssid, std::string_view password
 
   esp_wifi_stop();  // ensure WiFi is stopped before changing mode
 
+  network_state_.clearStaFailed();
+
   wifi_config_t sta_config{};
 
-  sta_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+  sta_config.sta.threshold.authmode = password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
   sta_config.sta.pmf_cfg.capable = true;
   sta_config.sta.pmf_cfg.required = false;
 
@@ -254,47 +280,51 @@ void WiFiAdapter::connectToWiFi(std::string_view ssid, std::string_view password
 
   esp_wifi_set_mode(WIFI_MODE_STA);
 
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);  // powe save mode
+  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);  // power save mode
 
-  esp_netif_set_hostname(sta_netif, hostname_.data());
+  esp_netif_set_hostname(sta_netif, hostname_.c_str());
 
-  esp_wifi_start();
-
-  esp_wifi_connect();
+  esp_wifi_start();  // WIFI_EVENT_STA_START handler calls esp_wifi_connect()
 }
 
-void WiFiAdapter::disconnectFromWiFi() {
+void WiFiAdapter::reconnect() {
+  const esp_err_t err = esp_wifi_connect();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {  // ESP_ERR_WIFI_CONN: already connecting
+    logger::warn("WiFi reconnect failed: {}", esp_err_to_name(err));
+  }
+}
+
+void WiFiAdapter::disconnectFromNetwork() {
   if (!initialized_) {
     logger::warn("Attempted to disconnect without initialization");
     return;
   }
 
   esp_wifi_stop();
+  network_state_.setStaFailed();
 
-  logger::debug("Disconnected from WiFi");
+  logger::debug("Disconnected from Network");
 }
 
 void WiFiAdapter::registerEventHandler(NetworkEvent event, StationConnectionCallback cb) {
   if (event != NetworkEvent::StationConnectionEstablished) {
-    logger::warn(
-        "Attempted to register StationConnectionCallback for non-StationConnectionEstablished "
-        "event");
+    logger::warn("Attempted to register StationConnectionCallback for non-StationConnectionEstablished event.");
     return;
   }
 
-  stationConnectionCallback_ = cb;
+  station_connection_callback_ = cb;
 }
 
 void WiFiAdapter::registerEventHandler(NetworkEvent event, SimpleEventCallback cb) {
   switch (event) {
     case NetworkEvent::StationDisconnected:
-      stationDisconnectionCallback_ = cb;
+      station_disconnection_callback_ = cb;
       break;
     case NetworkEvent::AccessPointStarted:
-      accessPointStartedCallback_ = cb;
+      access_point_started_callback_ = cb;
       break;
     case NetworkEvent::AccessPointStopped:
-      accessPointStoppedCallback_ = cb;
+      access_point_stopped_callback_ = cb;
       break;
     default:
       logger::warn("Attempted to register SimpleEventCallback for unsupported event");
@@ -305,30 +335,30 @@ void WiFiAdapter::registerEventHandler(NetworkEvent event, SimpleEventCallback c
 void WiFiAdapter::unregisterEventHandler(NetworkEvent event) {
   switch (event) {
     case NetworkEvent::StationConnectionEstablished:
-      stationConnectionCallback_ = nullptr;
+      station_connection_callback_ = nullptr;
       break;
     case NetworkEvent::StationDisconnected:
-      stationDisconnectionCallback_ = nullptr;
+      station_disconnection_callback_ = nullptr;
       break;
     case NetworkEvent::AccessPointStarted:
-      accessPointStartedCallback_ = nullptr;
+      access_point_started_callback_ = nullptr;
       break;
     case NetworkEvent::AccessPointStopped:
-      accessPointStoppedCallback_ = nullptr;
+      access_point_stopped_callback_ = nullptr;
       break;
     default:
       logger::warn("Attempted to unregister handler for unknown event");
   }
 }
 
-void WiFiAdapter::esp_event_dispatcher(void* arg, const char* base, int32_t id, void* data) {
+void WiFiAdapter::espDispatchEvent(void* arg, const char* base, int32_t id, void* data) {
   if (arg != nullptr) {
     auto* adapter = static_cast<WiFiAdapter*>(arg);
-    adapter->handle_system_event(base, id, data);
+    adapter->handleSystemEvent(base, id, data);
   }
 }
 
-void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) {
+void WiFiAdapter::handleSystemEvent(const char* base, int32_t id, void* data) {
   if (base == WIFI_EVENT) {
     switch (id) {
       case WIFI_EVENT_STA_START:
@@ -337,26 +367,27 @@ void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) 
       case WIFI_EVENT_STA_DISCONNECTED:
         network_state_.setStaDisconnected();
 
-        if (stationDisconnectionCallback_ != nullptr) {
-          stationDisconnectionCallback_(context_);
+
+        if (station_disconnection_callback_ != nullptr) {
+          station_disconnection_callback_(context_);
         }
         break;
       case WIFI_EVENT_AP_START:
         network_state_.setApConnected();
 
-        if (accessPointStartedCallback_ != nullptr) {
-          accessPointStartedCallback_(context_);
+        if (access_point_started_callback_ != nullptr) {
+          access_point_started_callback_(context_);
         }
         break;
       case WIFI_EVENT_AP_STOP:
         network_state_.setApDisconnected();
 
-        if (accessPointStoppedCallback_ != nullptr) {
-          accessPointStoppedCallback_(context_);
+        if (access_point_stopped_callback_ != nullptr) {
+          access_point_stopped_callback_(context_);
         }
         break;
       default:
-        logger::warn("Received unhandled WIFI_EVENT with id: {}", id);
+        logger::debug("Unhandled WIFI_EVENT with id: {}", id);
     }
   } else if (base == IP_EVENT) {
     switch (id) {
@@ -366,13 +397,13 @@ void WiFiAdapter::handle_system_event(const char* base, int32_t id, void* data) 
 
         network_state_.setStaConnected();
 
-        if (stationConnectionCallback_ != nullptr) {
-          stationConnectionCallback_(context_, ip_address);
+        if (station_connection_callback_ != nullptr) {
+          station_connection_callback_(context_, ip_address);
         }
         break;
       }
       default:
-        logger::warn("Received unhandled IP_EVENT with id: {}", id);
+        logger::debug("Unhandled IP_EVENT with id: {}", id);
     }
   } else {
     logger::warn("Received event with unknown base: {}", base);

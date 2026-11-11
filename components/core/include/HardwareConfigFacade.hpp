@@ -1,5 +1,10 @@
 #pragma once
 
+#include <esp_attr.h>
+
+#include <ctime>
+
+
 namespace app::core {
 
 class HardwareConfigFacade {
@@ -10,7 +15,7 @@ class HardwareConfigFacade {
   bool initHardware();
   [[nodiscard]] bool isButtonPressed();
   void syncTime();
-  [[nodiscard]] bool isTimeSyncronized() const;
+  [[nodiscard]] bool isTimeSynchronized() const;
 
  private:
   bool button_initialized_{false};

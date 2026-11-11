@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <optional>
 #include <string>
 
@@ -19,7 +21,7 @@ class NetworkManager {
   NetworkManager();
   ~NetworkManager();
 
-  void init();
+  bool init();
   void deinit();
 
   void enableAccessPoint();
@@ -43,10 +45,12 @@ class NetworkManager {
   utils::Timer timeout_timer_;
   utils::Timer retry_timer_;
 
-  std::string target_ssid_;
-  std::string target_password_;
+  // lost links are retried only while true
+  std::atomic<bool> want_connected_{false};
+  std::atomic<std::uint32_t> retry_attempt_{0};
 
   static void retry_timer_callback(void* context);
+  static void timeout_timer_callback(void* context);
 };
 
 }  // namespace app::network

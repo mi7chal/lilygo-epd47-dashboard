@@ -2,7 +2,7 @@
 
 #include <nvs.h>
 
-#include <string_view>
+#include <string>
 
 namespace app::storage {
 
@@ -10,7 +10,7 @@ enum class NVSOpenMode { ReadOnly = NVS_READONLY, ReadWrite = NVS_READWRITE };
 
 class NVSAdapter {
  public:
-  NVSAdapter(std::string_view namespace_name);
+  NVSAdapter(std::string namespace_name);
   ~NVSAdapter() noexcept;
   NVSAdapter(const NVSAdapter&) = delete;
   NVSAdapter& operator=(const NVSAdapter&) = delete;
@@ -34,7 +34,7 @@ class NVSAdapter {
   [[nodiscard]] bool isOpen() const { return handle_ != 0; }
 
  private:
-  std::string_view namespace_;
+  std::string namespace_;
   bool is_initialized_ = false;
   nvs_handle_t handle_ = 0;
 };

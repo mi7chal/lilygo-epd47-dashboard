@@ -1,5 +1,7 @@
 #include "NetworkManager.hpp"
 
+#include <algorithm>
+
 #include "logger.hpp"
 
 
@@ -11,7 +13,13 @@ constexpr const char* kHostname = "lilygo-dashboard";
 constexpr const char* kWifiPortalName = "LilyGO Dashboard";
 constexpr const char* kWifiPortalPassword = "lilygo678";
 constexpr std::uint32_t kWifiConnectionTimeoutSeconds = 30U;
+constexpr std::uint32_t kRetryBaseDelayMs = 1000U;
+constexpr std::uint32_t kRetryMaxDelayMs = 30000U;
+constexpr std::uint32_t kRetryMaxShift = 5U;  // 1s, 2s, 4s ... capped by kRetryMaxDelayMs
 
+constexpr std::uint32_t retryDelayMs(std::uint32_t attempt) {
+  return std::min(kRetryBaseDelayMs << std::min(attempt, kRetryMaxShift), kRetryMaxDelayMs);
+}
 
 
 }  // namespace
@@ -19,25 +27,43 @@ constexpr std::uint32_t kWifiConnectionTimeoutSeconds = 30U;
 
 void NetworkManager::retry_timer_callback(void* context) {
   auto* nm = static_cast<NetworkManager*>(context);
-  nm->connectToWiFi(nm->target_ssid_, nm->target_password_);
+  // credentials stay in the WiFi driver, only connect again
+  if (nm->want_connected_ && !nm->network_state_.isStaConnected()) {
+    nm->wifi_.reconnect();
+  }
 }
 
+// battery matters: give up instead of keeping the radio on forever, so the device can go back to deep sleep
+void NetworkManager::timeout_timer_callback(void* context) {
+  auto* nm = static_cast<NetworkManager*>(context);
+  logger::warn("WiFi connection timed out, giving up");
+
+  nm->want_connected_ = false;
+  nm->retry_timer_.stop();
+  nm->wifi_.disconnectFromNetwork();
+}
 
 NetworkManager::NetworkManager()
     : network_state_(),
       wifi_(this, network_state_, kHostname),
       dns_server_(),
-      timeout_timer_(this, nullptr),
+      timeout_timer_(this, timeout_timer_callback),
       retry_timer_(this, retry_timer_callback) {}
 NetworkManager::~NetworkManager() { deinit(); };
 
 
-void NetworkManager::init() {
-  wifi_.init();
+bool NetworkManager::init() {
+  if (!wifi_.init()) {
+    return false;
+  }
+
   wifi_.registerEventHandler(NetworkEvent::StationConnectionEstablished, [](void* context, IpAddress ip_address) {
     logger::info("Connected to WiFi network with IP: {}", ip_address.to_string());
 
     auto* nm = static_cast<NetworkManager*>(context);
+    nm->timeout_timer_.stop();
+    nm->retry_timer_.stop();
+    nm->retry_attempt_ = 0;
 
     nm->wifi_.enableMDNS("LilyGO Dashboard");  // todo move
   });
@@ -46,11 +72,17 @@ void NetworkManager::init() {
     logger::debug("Disconnected from WiFi network");
     auto* nm = static_cast<NetworkManager*>(context);
 
-    if (nm->timeout_timer_.isActive()) {
-      logger::debug("WiFi connection lost during connection attempt, retrying...");
-
-      nm->retry_timer_.startOnce(1000);  // retry after 1 second
+    if (!nm->want_connected_) {
+      return;
     }
+
+    // a link lost after connecting gets the same bounded retry window
+    if (!nm->timeout_timer_.isActive()) {
+      nm->timeout_timer_.startOnce(kWifiConnectionTimeoutSeconds * 1000U);
+    }
+
+    logger::debug("WiFi connection lost, retrying...");
+    nm->retry_timer_.startOnce(retryDelayMs(nm->retry_attempt_.fetch_add(1)));
   });
 
   wifi_.registerEventHandler(NetworkEvent::AccessPointStarted, [](void* context) {
@@ -77,9 +109,14 @@ void NetworkManager::init() {
   });
 
   logger::info("NetworkManager initialized");
+  return true;
 }
 
 void NetworkManager::deinit() {
+  want_connected_ = false;
+  timeout_timer_.stop();
+  retry_timer_.stop();
+
   wifi_.deinit();
   dns_server_.stop();
 }
@@ -101,12 +138,12 @@ std::optional<AccessPointInfo> NetworkManager::waitForAccessPointInfo(uint32_t t
 void NetworkManager::connectToWiFi(const std::string& ssid, const std::string& password) {
   logger::debug("Attempting to connect to WiFi network: {}", ssid);
 
-  target_ssid_ = ssid;
-  target_password_ = password;
-
+  want_connected_ = true;
+  retry_attempt_ = 0;
+  retry_timer_.stop();
   timeout_timer_.startOnce(kWifiConnectionTimeoutSeconds * 1000U);
 
-  wifi_.connectToWiFi(ssid, password);
+  wifi_.connectToNetwork(ssid, password);
 }
 
 std::optional<WiFiConnectionInfo> NetworkManager::waitForWiFiConnectionInfo(uint32_t timeout_ms) const {

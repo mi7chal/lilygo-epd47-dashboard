@@ -3,6 +3,7 @@
 #include <fmt/chrono.h>
 
 #include <chrono>
+#include <cstring>
 
 
 namespace app::logger {
@@ -27,8 +28,7 @@ namespace detail {
 
 void write_impl(LogLevel level, const std::source_location& location, fmt::string_view format, fmt::format_args args) {
   char tag_buf[64];
-  auto tag_res = fmt::format_to_n(tag_buf, sizeof(tag_buf) - 1, "{}:{}",
-                                  short_file_name(location.file_name()),
+  auto tag_res = fmt::format_to_n(tag_buf, sizeof(tag_buf) - 1, "{}:{}", short_file_name(location.file_name()),
                                   static_cast<unsigned>(location.line()));
   *tag_res.out = '\0';
 
@@ -46,6 +46,7 @@ void write_impl(LogLevel level, const std::source_location& location, fmt::strin
   fmt::memory_buffer line;
   fmt::format_to(std::back_inserter(line), " [{}] ", time_buf);
   fmt::vformat_to(std::back_inserter(line), format, args);
+  line.push_back('\n');
   line.push_back('\0');  // null-terminate the buffer for esp_log_write
 
   esp_log_write(static_cast<esp_log_level_t>(level), tag_buf, "%s", line.data());

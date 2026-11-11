@@ -2,18 +2,20 @@
 
 #include <nvs_flash.h>
 
+#include <utility>
+
 #include "logger.hpp"
 
 namespace app::storage {
 
-NVSAdapter::NVSAdapter(std::string_view namespace_name) : namespace_(namespace_name) {}
+NVSAdapter::NVSAdapter(std::string namespace_name) : namespace_(std::move(namespace_name)) {}
 
 NVSAdapter::~NVSAdapter() noexcept {
   close();  // close is idempotent, so it's safe to call even if the namespace was never opened
 }
 
 NVSAdapter::NVSAdapter(NVSAdapter&& other) noexcept
-    : namespace_(other.namespace_), is_initialized_(other.is_initialized_), handle_(other.handle_) {
+    : namespace_(std::move(other.namespace_)), is_initialized_(other.is_initialized_), handle_(other.handle_) {
   other.is_initialized_ = false;
   other.handle_ = 0;
 }
@@ -24,6 +26,7 @@ NVSAdapter& NVSAdapter::operator=(NVSAdapter&& other) noexcept {
       nvs_close(handle_);  // closing previous
     }
 
+    namespace_ = std::move(other.namespace_);
     handle_ = other.handle_;
     is_initialized_ = other.is_initialized_;
 
@@ -56,7 +59,7 @@ void NVSAdapter::open(NVSOpenMode mode) {
     return;
   }
 
-  esp_err_t err = nvs_open(namespace_.data(), static_cast<nvs_open_mode_t>(mode), &handle_);
+  esp_err_t err = nvs_open(namespace_.c_str(), static_cast<nvs_open_mode_t>(mode), &handle_);
   if (err != ESP_OK) {
     logger::error("Failed to open NVS handle: {}", esp_err_to_name(err));
     return;
@@ -74,6 +77,7 @@ void NVSAdapter::close() {
   }
 
   nvs_close(handle_);
+  handle_ = 0;
 }
 
 void NVSAdapter::commit() {

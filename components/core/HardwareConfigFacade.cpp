@@ -1,7 +1,7 @@
 #include "HardwareConfigFacade.hpp"
 
 #include <esp_netif_sntp.h>
-// #include <esp_sntp.h>
+#include <esp_sntp.h>
 // #include <esp_system.h>
 #include <driver/gpio.h>
 #include <esp_attr.h>
@@ -15,6 +15,7 @@
 
 
 namespace app::core {
+
 
 namespace {
 constexpr gpio_num_t kConfigButtonPin = GPIO_NUM_21;
@@ -64,30 +65,6 @@ bool HardwareConfigFacade::isButtonPressed() {
   }
 
   return gpio_get_level(GPIO_NUM_21) == 0;
-}
-
-
-void HardwareConfigFacade::syncTime() {
-  // todo research and consider dhcp sntp
-  if (isTimeSyncronized()) {
-    logger::debug("Time is already synchronized, skipping sync");
-  }
-
-  // todo consider using multiple serveers and/or dhcp provided servers. also consider migrating to openweather ntp
-  // todo handle errors, netif sntp init state etc.
-
-  esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
-  esp_netif_sntp_init(&config);
-}
-
-
-bool HardwareConfigFacade::isTimeSyncronized() const {
-  using namespace std::chrono;
-  auto now = system_clock::now();
-
-  auto kMinValidDate = sys_days{2024y / January / 1d};
-
-  return now >= kMinValidDate;
 }
 
 

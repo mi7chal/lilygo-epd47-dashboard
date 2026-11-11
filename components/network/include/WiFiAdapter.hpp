@@ -40,11 +40,11 @@ class WiFiAdapter {
   // Callback types for different events
   // Splitting them into separate types for better type safety and clarity
   // pointers instead of std::function to avoid dynamic memory allocation and
-  // adiitional cpu/memory overhead
+  // additional cpu/memory overhead
   using StationConnectionCallback = void (*)(void* context, IpAddress ip_address);
   using SimpleEventCallback = void (*)(void* context);
 
-  WiFiAdapter(void* context, NetworkState& network_state, std::string_view hostname);
+  WiFiAdapter(void* context, NetworkState& network_state, std::string hostname);
   ~WiFiAdapter() noexcept;
   WiFiAdapter(const WiFiAdapter&) = delete;
   WiFiAdapter& operator=(const WiFiAdapter&) = delete;
@@ -54,16 +54,18 @@ class WiFiAdapter {
   bool init();
   void deinit();
 
-  void enableMDNS(std::string_view instance_name = "");
+  void enableMDNS(const std::string& instance_name = "");
 
   void startAccessPoint(std::string_view ssid, std::string_view password);
   void stopAccessPoint();
 
-  void connectToWiFi(std::string_view ssid, std::string_view password);
-  void disconnectFromWiFi();
+  void connectToNetwork(std::string_view ssid, std::string_view password);
+  /// retries the current connection attempt without reconfiguring WiFi
+  void reconnect();
+  void disconnectFromNetwork();
 
-  void registerEventHandler(NetworkEvent event, StationConnectionCallback cb);
-  void registerEventHandler(NetworkEvent event, SimpleEventCallback cb);
+  void registerEventHandler(NetworkEvent, SimpleEventCallback);
+  void registerEventHandler(NetworkEvent, StationConnectionCallback);
 
   /**
    * @brief unregisters (resets) handler for given event
@@ -80,6 +82,7 @@ class WiFiAdapter {
  private:
   void initAccessPoint();
   void initStation();
+  void unregisterEspHandlers();
 
   void* context_{nullptr};
   NetworkState& network_state_;
@@ -88,23 +91,22 @@ class WiFiAdapter {
   esp_netif_t* sta_netif{nullptr};  // nullptr means not initialized
   esp_netif_t* ap_netif{nullptr};   // same as above
 
-  EventGroupHandle_t wifi_event_group_{nullptr};
-
-  std::string_view hostname_;
+  std::string hostname_;
+  std::string portal_uri_;  // DHCP option 114 keeps the pointer, so it must outlive the DHCP server
 
   // Callbacks for different events
   // Using separate fields for each callback is more memory-efficient (no
   // dynamic memory, no containers overhead)
-  StationConnectionCallback stationConnectionCallback_{nullptr};
-  SimpleEventCallback stationDisconnectionCallback_{nullptr};
-  SimpleEventCallback accessPointStartedCallback_{nullptr};
-  SimpleEventCallback accessPointStoppedCallback_{nullptr};
+  StationConnectionCallback station_connection_callback_{nullptr};
+  SimpleEventCallback station_disconnection_callback_{nullptr};
+  SimpleEventCallback access_point_started_callback_{nullptr};
+  SimpleEventCallback access_point_stopped_callback_{nullptr};
 
-  esp_event_handler_instance_t wifi_event_instance;
-  esp_event_handler_instance_t ip_event_instance;
+  esp_event_handler_instance_t wifi_event_delegating_handler_{nullptr};
+  esp_event_handler_instance_t ip_event_delegating_handler_{nullptr};
 
-  static void esp_event_dispatcher(void* arg, const char* base, int32_t id, void* data);
-  void handle_system_event(const char* base, int32_t id, void* data);
+  static void espDispatchEvent(void* arg, const char* base, int32_t id, void* data);
+  void handleSystemEvent(const char* base, int32_t id, void* data);
 };
 
 }  // namespace app::network

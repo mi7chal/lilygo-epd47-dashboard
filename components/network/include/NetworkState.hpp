@@ -70,7 +70,13 @@ class NetworkState {
     xEventGroupSetBits(group_, kStaConnectedBit);
   }
 
-  void setStaDisconnected() {
+  // waiters keep waiting, the manager may still retry
+  void setStaDisconnected() { xEventGroupClearBits(group_, kStaConnectedBit); }
+
+  void clearStaFailed() { xEventGroupClearBits(group_, kStaFailBit); }
+
+  // attempt is over: wakes waiters
+  void setStaFailed() {
     xEventGroupClearBits(group_, kStaConnectedBit);
     xEventGroupSetBits(group_, kStaFailBit);
   }

@@ -3,7 +3,9 @@
 #include <fmt/format.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace app::network {
 
@@ -23,7 +25,7 @@ class IpAddress {
     m_bytes[3] = static_cast<uint8_t>((u32_addr >> 24) & 0xFF);
   }
 
-  constexpr uint8_t operator[](size_t index) const { return m_bytes.at(index); }
+  constexpr uint8_t operator[](size_t index) const { return m_bytes[index]; }
 
   constexpr uint32_t to_u32() const {
     return (static_cast<uint32_t>(m_bytes[3]) << 24) | (static_cast<uint32_t>(m_bytes[2]) << 16) |
