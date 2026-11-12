@@ -20,6 +20,7 @@ jobs:
             ~/.cache/pip
             ~/.platformio
             .pio
+            managed_components
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini', 'sdkconfig.*', 'CMakeLists.txt', 'dependencies.lock') }}
           restore-keys: |
             pio-${{ runner.os }}-
@@ -30,11 +31,11 @@ jobs:
       - name: Check formatting
         run: clang-format --dry-run --Werror $(find src components test -name '*.cpp' -o -name '*.hpp')
 
-      - name: Test
-        run: platformio test -e native
-
       - name: Build
         run: platformio run -e T5-ePaper-S3
 
       - name: Platformio check
         run: platformio check -e T5-ePaper-S3 --skip-packages
+
+      - name: Test
+        run: platformio test -e native
