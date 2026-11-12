@@ -485,7 +485,7 @@ const uint8_t InterRegular12Bitmaps[7706] = {
     0xFC, 0x5F, 0x9A, 0x01, 0x0A, 0x00, 0x57, 0xA3, 0x0E, 0xB7,
 };
 const GFXglyph InterRegular12Glyphs[] = {
-    { 0, 0, 7, 0, 0, 8, 0 }, //  
+    { 0, 0, 7, 0, 0, 8, 0 }, //
     { 5, 20, 7, 1, 19, 38, 8 }, // !
     { 8, 8, 10, 1, 19, 22, 46 }, // "
     { 16, 19, 16, 0, 19, 137, 68 }, // #

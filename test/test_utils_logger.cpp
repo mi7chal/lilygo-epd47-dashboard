@@ -70,4 +70,3 @@ TEST_F(LoggerTest, ShortFileName) {
   EXPECT_STREQ("c.cpp", logger::short_file_name("a\\b\\c.cpp"));
   EXPECT_STREQ("c.cpp", logger::short_file_name("c.cpp"));
 }
-

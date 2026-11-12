@@ -49,7 +49,10 @@ void write_impl(LogLevel level, const std::source_location& location, fmt::strin
     *time_res.out = '\0';
   }
 
-  const char letter = level == LogLevel::Error ? 'E' : level == LogLevel::Warn ? 'W' : level == LogLevel::Info ? 'I' : 'D';
+  const char letter = level == LogLevel::Error  ? 'E'
+                      : level == LogLevel::Warn ? 'W'
+                      : level == LogLevel::Info ? 'I'
+                                                : 'D';
 
   fmt::memory_buffer line;
   fmt::format_to(std::back_inserter(line), "{} [{}] {}: ", letter, time_buf, tag_buf);

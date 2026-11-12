@@ -17,7 +17,7 @@ build/
 .clangd/
 .ccls-cache/
 
-# PlatformIO 
+# PlatformIO
 env/
 .pio/
 .pioenvs/

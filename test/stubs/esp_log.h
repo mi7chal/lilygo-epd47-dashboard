@@ -34,4 +34,3 @@ inline void esp_log_write(esp_log_level_t, const char* tag, const char* format, 
   esp_log_stub::last_tag = tag;
   ++esp_log_stub::write_count;
 }
-
