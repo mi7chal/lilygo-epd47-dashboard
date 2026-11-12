@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <ctime>
 
 
 namespace app::logger {
@@ -32,6 +33,8 @@ void write_impl(LogLevel level, const std::source_location& location, fmt::strin
                                   static_cast<unsigned>(location.line()));
   *tag_res.out = '\0';
 
+  if (esp_log_level_get(tag_buf) < static_cast<esp_log_level_t>(level)) return;
+
   char time_buf[32];
   using namespace std::chrono;
   auto now = system_clock::now();
@@ -39,12 +42,17 @@ void write_impl(LogLevel level, const std::source_location& location, fmt::strin
   if (now < kMinValidDate) {
     std::strcpy(time_buf, "--");
   } else {
-    auto time_res = fmt::format_to_n(time_buf, sizeof(time_buf) - 1, "{:%d.%m.%Y %H:%M:%S}", now);
+    std::time_t t = system_clock::to_time_t(now);
+    std::tm local_tm;
+    localtime_r(&t, &local_tm);
+    auto time_res = fmt::format_to_n(time_buf, sizeof(time_buf) - 1, "{:%d.%m.%Y %H:%M:%S}", local_tm);
     *time_res.out = '\0';
   }
 
+  const char letter = level == LogLevel::Error ? 'E' : level == LogLevel::Warn ? 'W' : level == LogLevel::Info ? 'I' : 'D';
+
   fmt::memory_buffer line;
-  fmt::format_to(std::back_inserter(line), " [{}] ", time_buf);
+  fmt::format_to(std::back_inserter(line), "{} [{}] {}: ", letter, time_buf, tag_buf);
   fmt::vformat_to(std::back_inserter(line), format, args);
   line.push_back('\n');
   line.push_back('\0');  // null-terminate the buffer for esp_log_write

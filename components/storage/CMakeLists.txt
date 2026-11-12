@@ -3,6 +3,5 @@
 idf_component_register(
     SRCS "NVSAdapter.cpp" "StorageManager.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES nvs_flash
-    PRIV_REQUIRES logger
+    REQUIRES nvs_flash utils
 )
