@@ -23,23 +23,8 @@ class NetworkState {
   NetworkState(NetworkState&&) = delete;
   NetworkState& operator=(NetworkState&&) = delete;
 
-  [[nodiscard]] bool isConnected() const {
-    EventBits_t bits = xEventGroupGetBits(group_);
-    return (bits & (kStaConnectedBit | kApConnectedBit)) != 0;
-  }
-
   [[nodiscard]] bool isStaConnected() const { return (xEventGroupGetBits(group_) & kStaConnectedBit) != 0; }
-  [[nodiscard]] bool hasStaFailed() const { return (xEventGroupGetBits(group_) & kStaFailBit) != 0; }
-
   [[nodiscard]] bool isApActive() const { return (xEventGroupGetBits(group_) & kApConnectedBit) != 0; }
-  [[nodiscard]] bool hasApFailed() const { return (xEventGroupGetBits(group_) & kApFailBit) != 0; }
-
-
-  bool waitForAnyConnection(uint32_t timeout_ms) const {
-    EventBits_t bits = xEventGroupWaitBits(group_, kStaConnectedBit | kApConnectedBit | kStaFailBit | kApFailBit,
-                                           pdFALSE, pdFALSE, pdMS_TO_TICKS(timeout_ms));
-    return (bits & (kStaConnectedBit | kApConnectedBit)) != 0;
-  }
 
   bool waitForStaConnection(uint32_t timeout_ms) const {
     EventBits_t bits =
@@ -90,10 +75,16 @@ class NetworkState {
     xEventGroupSetBits(group_, kApConnectedBit);
   }
 
-  void setApDisconnected() {
+  void setApDisconnected() { xEventGroupClearBits(group_, kApConnectedBit); }
+
+  void clearApFailed() { xEventGroupClearBits(group_, kApFailBit); }
+
+  void setApFailed() {
     xEventGroupClearBits(group_, kApConnectedBit);
     xEventGroupSetBits(group_, kApFailBit);
   }
+
+  void reset() { xEventGroupClearBits(group_, kStaConnectedBit | kStaFailBit | kApConnectedBit | kApFailBit); }
 };
 
 }  // namespace app::network

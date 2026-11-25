@@ -6,12 +6,25 @@ TaskRunner::TaskRunner() : done_(xSemaphoreCreateBinary()) {}
 
 TaskRunner::~TaskRunner() {
   stop();
-  vSemaphoreDelete(done_);
+  if (done_ != nullptr) {
+    vSemaphoreDelete(done_);
+    done_ = nullptr;
+  }
 }
 
 bool TaskRunner::start(Body body, void* context, const char* name, uint32_t stack_bytes, UBaseType_t priority,
                        BaseType_t core) {
-  join();  // reap a task that ended on its own; no-op when idle
+  if (done_ == nullptr) {
+    return false;
+  }
+  std::lock_guard<std::mutex> lock(join_mutex_);
+  if (state_.is(TaskState::Running)) {
+    return false;
+  }
+  if (state_.is(TaskState::Exited)) {
+    xSemaphoreTake(done_, portMAX_DELAY);
+    state_.set(TaskState::Idle);
+  }
   if (!state_.transition(TaskState::Idle, TaskState::Running)) {
     return false;
   }
@@ -28,7 +41,8 @@ bool TaskRunner::start(Body body, void* context, const char* name, uint32_t stac
 }
 
 void TaskRunner::join() {
-  if (state_.is(TaskState::Idle)) return;
+  std::lock_guard<std::mutex> lock(join_mutex_);
+  if (done_ == nullptr || state_.is(TaskState::Idle)) return;
   xSemaphoreTake(done_, portMAX_DELAY);
   state_.set(TaskState::Idle);
 }

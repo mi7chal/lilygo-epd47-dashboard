@@ -14,8 +14,10 @@
 *.dylib
 build/
 
-.clangd/
+.clangd
+.cache/
 .ccls-cache/
+compile_commands.json
 
 # PlatformIO
 env/

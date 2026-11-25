@@ -2,9 +2,11 @@
 
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include <array>
+#include <cerrno>
 
 #include "DnsPacket.hpp"
 #include "logger.hpp"
@@ -16,9 +18,10 @@ DnsServer::DnsServer() = default;
 DnsServer::~DnsServer() { stop(); }
 
 bool DnsServer::start(IpAddress ip_address) {
-  if (runner_.isRunning()) {
+  if (isActive()) {
     return true;
   }
+  runner_.stop();  // no-op when Idle; waits out pending requestStop() or reaps Exited
 
   ip_address_ = ip_address;
 
@@ -33,27 +36,7 @@ bool DnsServer::start(IpAddress ip_address) {
   return true;
 }
 
-void DnsServer::closeSocket() {
-  // whoever swaps the handle out closes it, so it is never closed twice or used after close() by the other task
-  const int socket_fd = server_socket_.exchange(-1);
-  if (socket_fd != -1) {
-    close(socket_fd);
-  }
-}
-
-void DnsServer::stop() {
-  const bool was_running = runner_.isRunning();
-  runner_.requestStop();
-
-  // unblocks recvfrom in the task
-  closeSocket();
-
-  runner_.join();
-
-  if (was_running) {
-    logger::info("DNS Server stopped");
-  }
-}
+void DnsServer::stop() { runner_.stop(); }
 
 void DnsServer::taskEntry(void* context) { static_cast<DnsServer*>(context)->runLoop(); }
 
@@ -77,13 +60,9 @@ void DnsServer::runLoop() {
     return;
   }
 
-  server_socket_ = socket_fd;
-
-  // stop() sets the flag before it closes the socket: if it ran before the line above it could not close this socket,
-  // so check here instead of blocking forever
-  if (runner_.stopRequested()) {
-    closeSocket();
-    return;
+  constexpr timeval kRecvTimeout{.tv_sec = 0, .tv_usec = 200000};
+  if (setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &kRecvTimeout, sizeof(kRecvTimeout)) < 0) {
+    logger::warn("DNS failed to set SO_RCVTIMEO: {}", errno);
   }
 
   // buffer for receiving the query and building the response in place
@@ -102,6 +81,9 @@ void DnsServer::runLoop() {
       if (runner_.stopRequested()) {
         break;
       }
+      if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        continue;
+      }
       logger::error("DNS recvfrom failed: {}", errno);
       vTaskDelay(pdMS_TO_TICKS(50));
       continue;
@@ -116,7 +98,8 @@ void DnsServer::runLoop() {
     sendto(socket_fd, buffer.data(), response_len, 0, reinterpret_cast<struct sockaddr*>(&source_addr), socklen);
   }
 
-  closeSocket();
+  close(socket_fd);
+  logger::info("DNS Server stopped");
 }
 
 }  // namespace app::network

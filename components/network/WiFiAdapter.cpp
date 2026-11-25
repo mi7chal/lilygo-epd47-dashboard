@@ -31,7 +31,7 @@ bool WiFiAdapter::init() {
     return false;
   }
 
-  err = esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &WiFiAdapter::espDispatchEvent, this,
+  err = esp_event_handler_instance_register(IP_EVENT, ESP_EVENT_ANY_ID, &WiFiAdapter::espDispatchEvent, this,
                                             &ip_event_delegating_handler_);
 
   if (err != ESP_OK) {
@@ -48,8 +48,10 @@ bool WiFiAdapter::init() {
     return false;
   }
 
-  esp_wifi_set_storage(WIFI_STORAGE_RAM);  // config unknown at compile-time is stored in StorageManager
-
+  err = esp_wifi_set_storage(WIFI_STORAGE_RAM);  // config unknown at compile-time is stored in StorageManager
+  if (err != ESP_OK) {
+    logger::warn("Failed to set WiFi storage to RAM: {}", esp_err_to_name(err));
+  }
   initialized_ = true;
   return true;
 }
@@ -60,7 +62,7 @@ void WiFiAdapter::unregisterEspHandlers() {
     wifi_event_delegating_handler_ = nullptr;
   }
   if (ip_event_delegating_handler_ != nullptr) {
-    esp_event_handler_instance_unregister(IP_EVENT, IP_EVENT_STA_GOT_IP, ip_event_delegating_handler_);
+    esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, ip_event_delegating_handler_);
     ip_event_delegating_handler_ = nullptr;
   }
 }
@@ -70,12 +72,25 @@ void WiFiAdapter::deinit() {
     return;
   }
 
+  sta_started_.store(false, std::memory_order_release);
+
   // handlers first: no callback may reach the owner during teardown
   unregisterEspHandlers();
 
-  esp_wifi_stop();
+  esp_err_t err = esp_wifi_stop();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT && err != ESP_ERR_WIFI_NOT_STARTED) {
+    logger::warn("Failed to stop WiFi during deinit: {}", esp_err_to_name(err));
+  }
 
-  esp_wifi_deinit();
+  err = esp_wifi_deinit();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT) {
+    logger::warn("Failed to deinit WiFi: {}", esp_err_to_name(err));
+  }
+
+  if (mdns_initialized_) {
+    mdns_free();
+    mdns_initialized_ = false;
+  }
 
   // plain esp_netif_destroy would leave the WiFi glue dangling
   if (sta_netif != nullptr) {
@@ -87,6 +102,7 @@ void WiFiAdapter::deinit() {
     ap_netif = nullptr;
   }
 
+  network_state_.reset();
   initialized_ = false;
 }
 
@@ -107,9 +123,10 @@ std::optional<WiFiConnectionInfo> WiFiAdapter::getWiFiConnectionInfo() const {
     return std::nullopt;
   }
 
-  // technically hostname could be gotten from netif too, but it's already stored
-  return WiFiConnectionInfo{std::string(reinterpret_cast<const char*>(ap_record.ssid)), std::string{hostname_},
-                            IpAddress{ip_info.ip.addr}, ap_record.rssi};
+  const auto* ssid_ptr = reinterpret_cast<const char*>(ap_record.ssid);
+  const std::size_t ssid_len = strnlen(ssid_ptr, sizeof(ap_record.ssid));
+  return WiFiConnectionInfo{std::string(ssid_ptr, ssid_len), std::string{hostname_}, IpAddress{ip_info.ip.addr},
+                            ap_record.rssi};
 }
 
 std::optional<AccessPointInfo> WiFiAdapter::getAccessPointInfo() const {
@@ -129,109 +146,136 @@ std::optional<AccessPointInfo> WiFiAdapter::getAccessPointInfo() const {
     return std::nullopt;
   }
 
-  // technically hostname could be gotten from netif too, but it's already stored
-  // ssid is not null-terminated when it uses all 32 bytes
-  return AccessPointInfo{std::string(reinterpret_cast<const char*>(ap_config.ap.ssid), ap_config.ap.ssid_len),
-                         std::string(reinterpret_cast<const char*>(ap_config.ap.password)), std::string{hostname_},
-                         IpAddress{ipInfo.ip.addr}};
+  // ssid is not null-terminated when it uses all 32 bytes; password is not null-terminated when 64 bytes
+  const std::size_t ssid_len = std::min<std::size_t>(ap_config.ap.ssid_len, sizeof(ap_config.ap.ssid));
+  const auto* pwd_ptr = reinterpret_cast<const char*>(ap_config.ap.password);
+  const std::size_t pwd_len = strnlen(pwd_ptr, sizeof(ap_config.ap.password));
+  return AccessPointInfo{std::string(reinterpret_cast<const char*>(ap_config.ap.ssid), ssid_len),
+                         std::string(pwd_ptr, pwd_len), std::string{hostname_}, IpAddress{ipInfo.ip.addr}};
 }
 
 
-void WiFiAdapter::initAccessPoint() {
+bool WiFiAdapter::initAccessPoint() {
   if (!initialized_) {
     logger::warn("Attempted to initialize Access Point without general initialization");
-    return;
+    return false;
   }
 
-  // it basically meants that ap is already initialized
+  // it basically means that ap is already initialized
   if (ap_netif != nullptr) {
-    return;
+    return true;
   }
 
   ap_netif = esp_netif_create_default_wifi_ap();
 
   if (ap_netif == nullptr) {
     logger::error("Failed to create default WiFi AP network interface");
-    return;
+    return false;
   }
 
   // --- DHCP 114 ---
   // https://datatracker.ietf.org/doc/rfc8910/
-  esp_err_t err = esp_netif_dhcps_stop(ap_netif);
-  if (err != ESP_OK && err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED) {
-    logger::warn("Failed to stop DHCP server for option configuration: {}", esp_err_to_name(err));
-  }
-
+  // Newly created ap_netif starts in ESP_NETIF_DHCP_INIT, so option 114 can be set directly;
+  // WIFI_EVENT_AP_START will start the DHCP server once the interface is up.
   esp_netif_ip_info_t ip_info{};
   if (esp_netif_get_ip_info(ap_netif, &ip_info) != ESP_OK) {
     logger::warn("Failed to read AP IP, DHCP Option 114 not set");
   } else {
     portal_uri_ = fmt::format("http://{}/", IpAddress{ip_info.ip.addr});
 
-    err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI, portal_uri_.data(),
-                                 static_cast<std::uint32_t>(portal_uri_.size()));
+    const esp_err_t err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET, ESP_NETIF_CAPTIVEPORTAL_URI,
+                                                 portal_uri_.data(), static_cast<std::uint32_t>(portal_uri_.size()));
     if (err != ESP_OK) {
       logger::warn("Failed to set DHCP Option 114: {}", esp_err_to_name(err));
     }
   }
 
-  err = esp_netif_dhcps_start(ap_netif);
-  if (err != ESP_OK) {
-    logger::error("Failed to restart DHCP server: {}", esp_err_to_name(err));
-  }
+  return true;
 }
 
-void WiFiAdapter::initStation() {
+bool WiFiAdapter::initStation() {
   if (!initialized_) {
     logger::warn("Attempted to initialize Station without general initialization");
-    return;
+    return false;
   }
 
-  // it basically meants that station is already initialized
+  // it basically means that station is already initialized
   if (sta_netif != nullptr) {
-    return;
+    return true;
   }
 
   sta_netif = esp_netif_create_default_wifi_sta();
+  if (sta_netif == nullptr) {
+    logger::error("Failed to create default WiFi STA network interface");
+    return false;
+  }
+  return true;
 }
 
 void WiFiAdapter::enableMDNS(const std::string& instance_name) {
-  const esp_err_t mdnsErr = mdns_init();
-
-  if (mdnsErr == ESP_OK || mdnsErr == ESP_ERR_INVALID_STATE) {
-    mdns_hostname_set(hostname_.c_str());
-
-    if (!instance_name.empty()) {
-      mdns_instance_name_set(instance_name.c_str());
+  if (!mdns_initialized_) {
+    const esp_err_t mdns_err = mdns_init();
+    if (mdns_err != ESP_OK && mdns_err != ESP_ERR_INVALID_STATE) {
+      logger::error("Error setting up mDNS responder: {}", esp_err_to_name(mdns_err));
+      return;
     }
-
-    logger::info("mDNS responder started. Access device under {}.local", hostname_);
-  } else {
-    logger::error("Error setting up mDNS responder: {}", esp_err_to_name(mdnsErr));
+    mdns_initialized_ = true;
   }
+
+  const esp_err_t host_err = mdns_hostname_set(hostname_.c_str());
+  if (host_err != ESP_OK) {
+    logger::warn("Failed to set mDNS hostname: {}", esp_err_to_name(host_err));
+  }
+
+  if (!instance_name.empty()) {
+    const esp_err_t inst_err = mdns_instance_name_set(instance_name.c_str());
+    if (inst_err != ESP_OK) {
+      logger::warn("Failed to set mDNS instance name: {}", esp_err_to_name(inst_err));
+    }
+  }
+
+  logger::info("mDNS responder active. Access device under {}.local", hostname_);
 }
 
-void WiFiAdapter::startAccessPoint(std::string_view ssid, std::string_view password = "") {
+bool WiFiAdapter::isValidCredentials(std::string_view ssid, std::string_view password) noexcept {
+  return !ssid.empty() && ssid.size() <= sizeof(wifi_sta_config_t::ssid) &&
+         (password.empty() || (password.size() >= 8 && password.size() <= sizeof(wifi_sta_config_t::password)));
+}
+
+bool WiFiAdapter::startAccessPoint(std::string_view ssid, std::string_view password) {
   if (!initialized_) {
     logger::warn("Attempted to start Access Point without initialization");
-    return;
+    network_state_.setApFailed();
+    return false;
   }
 
-  initAccessPoint();  // it will do nothing if AP is already initialized
+  wifi_config_t ap_config{};
+  static_assert(sizeof(ap_config.ap.ssid) == sizeof(wifi_sta_config_t::ssid));
+  static_assert(sizeof(ap_config.ap.password) == sizeof(wifi_sta_config_t::password));
+  if (!isValidCredentials(ssid, password)) {
+    logger::error("Invalid Access Point SSID or password length");
+    network_state_.setApFailed();
+    return false;
+  }
+
+  sta_started_.store(false, std::memory_order_release);
+  network_state_.clearApFailed();
+  network_state_.setStaDisconnected();
+
+  if (!initAccessPoint()) {
+    network_state_.setApFailed();
+    return false;
+  }
 
   esp_wifi_stop();  // ensure WiFi is stopped before changing mode
 
-  wifi_config_t ap_config{};
-
-  std::copy_n(ssid.begin(), std::min<std::size_t>(ssid.size(), sizeof(ap_config.ap.ssid)), ap_config.ap.ssid);
-  ap_config.ap.ssid_len = static_cast<uint8_t>(std::min<std::size_t>(ssid.size(), sizeof(ap_config.ap.ssid)));
+  std::copy_n(ssid.begin(), ssid.size(), ap_config.ap.ssid);
+  ap_config.ap.ssid_len = static_cast<uint8_t>(ssid.size());
 
   if (password.empty()) {
     ap_config.ap.authmode = WIFI_AUTH_OPEN;
   } else {
-    std::copy_n(password.begin(), std::min<std::size_t>(password.size(), sizeof(ap_config.ap.password)),
-                ap_config.ap.password);
-
+    std::copy_n(password.begin(), password.size(), ap_config.ap.password);
     ap_config.ap.authmode = WIFI_AUTH_WPA2_WPA3_PSK;  // mixed mode for compatibility
   }
 
@@ -239,68 +283,103 @@ void WiFiAdapter::startAccessPoint(std::string_view ssid, std::string_view passw
   ap_config.ap.channel = 1;
   ap_config.ap.ssid_hidden = 0;
 
-  esp_wifi_set_mode(WIFI_MODE_AP);
-  esp_wifi_set_config(WIFI_IF_AP, &ap_config);
-
-  esp_wifi_start();
-}
-
-void WiFiAdapter::stopAccessPoint() {
-  if (!initialized_) {
-    logger::warn("Attempted to stop Access Point without initialization");
-    return;
+  esp_err_t err = esp_wifi_set_mode(WIFI_MODE_AP);
+  if (err == ESP_OK) {
+    err = esp_wifi_set_config(WIFI_IF_AP, &ap_config);
+  }
+  if (err == ESP_OK) {
+    err = esp_wifi_start();
+  }
+  if (err != ESP_OK) {
+    logger::error("Failed to start Access Point: {}", esp_err_to_name(err));
+    network_state_.setApFailed();
+    return false;
   }
 
-  esp_wifi_stop();
+  return true;
 }
 
-void WiFiAdapter::connectToNetwork(std::string_view ssid, std::string_view password) {
+bool WiFiAdapter::connectToNetwork(std::string_view ssid, std::string_view password) {
   if (!initialized_) {
     logger::warn("Attempted to connect without initialization");
-    return;
+    network_state_.setStaFailed();
+    return false;
   }
 
-  initStation();  // it will do nothing if sta is already initialized
+  wifi_config_t sta_config{};
+  if (!isValidCredentials(ssid, password)) {
+    logger::warn("Invalid WiFi credentials (empty SSID or invalid password length)");
+    network_state_.setStaFailed();
+    return false;
+  }
+
+  sta_started_.store(false, std::memory_order_release);
+  network_state_.clearStaFailed();
+  network_state_.setApDisconnected();
+
+  if (!initStation()) {
+    network_state_.setStaFailed();
+    return false;
+  }
 
   esp_wifi_stop();  // ensure WiFi is stopped before changing mode
-
-  network_state_.clearStaFailed();
-
-  wifi_config_t sta_config{};
 
   sta_config.sta.threshold.authmode = password.empty() ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
   sta_config.sta.pmf_cfg.capable = true;
   sta_config.sta.pmf_cfg.required = false;
 
-  std::copy_n(ssid.begin(), std::min<std::size_t>(ssid.size(), sizeof(sta_config.sta.ssid)), sta_config.sta.ssid);
-  std::copy_n(password.begin(), std::min<std::size_t>(password.size(), sizeof(sta_config.sta.password)),
-              sta_config.sta.password);
+  std::copy_n(ssid.begin(), ssid.size(), sta_config.sta.ssid);
+  std::copy_n(password.begin(), password.size(), sta_config.sta.password);
 
-  esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+  esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+  if (err == ESP_OK) {
+    err = esp_wifi_set_config(WIFI_IF_STA, &sta_config);
+  }
+  if (err == ESP_OK) {
+    const esp_err_t ps_err = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);  // power save mode
+    if (ps_err != ESP_OK) {
+      logger::warn("Failed to set WiFi power save mode: {}", esp_err_to_name(ps_err));
+    }
+    const esp_err_t host_err = esp_netif_set_hostname(sta_netif, hostname_.c_str());
+    if (host_err != ESP_OK) {
+      logger::warn("Failed to set STA hostname: {}", esp_err_to_name(host_err));
+    }
+    err = esp_wifi_start();  // WIFI_EVENT_STA_START handler calls esp_wifi_connect()
+  }
+  if (err != ESP_OK) {
+    logger::error("Failed to start WiFi STA connection: {}", esp_err_to_name(err));
+    network_state_.setStaFailed();
+    return false;
+  }
 
-  esp_wifi_set_mode(WIFI_MODE_STA);
-
-  esp_wifi_set_ps(WIFI_PS_MIN_MODEM);  // power save mode
-
-  esp_netif_set_hostname(sta_netif, hostname_.c_str());
-
-  esp_wifi_start();  // WIFI_EVENT_STA_START handler calls esp_wifi_connect()
+  return true;
 }
 
-void WiFiAdapter::reconnect() {
+bool WiFiAdapter::reconnect() {
+  if (!initialized_ || !sta_started_.load(std::memory_order_acquire)) {
+    return false;
+  }
+
   const esp_err_t err = esp_wifi_connect();
   if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {  // ESP_ERR_WIFI_CONN: already connecting
     logger::warn("WiFi reconnect failed: {}", esp_err_to_name(err));
+    return false;
   }
+  return true;
 }
 
 void WiFiAdapter::disconnectFromNetwork() {
+  sta_started_.store(false, std::memory_order_release);
   if (!initialized_) {
     logger::warn("Attempted to disconnect without initialization");
+    network_state_.setStaFailed();
     return;
   }
 
-  esp_wifi_stop();
+  const esp_err_t err = esp_wifi_stop();
+  if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_INIT && err != ESP_ERR_WIFI_NOT_STARTED) {
+    logger::warn("Failed to stop WiFi during disconnect: {}", esp_err_to_name(err));
+  }
   network_state_.setStaFailed();
 
   logger::debug("Disconnected from Network");
@@ -315,11 +394,17 @@ void WiFiAdapter::registerEventHandler(NetworkEvent event, StationConnectionCall
   station_connection_callback_ = cb;
 }
 
+void WiFiAdapter::registerEventHandler(NetworkEvent event, StationDisconnectionCallback cb) {
+  if (event != NetworkEvent::StationDisconnected) {
+    logger::warn("Attempted to register StationDisconnectionCallback for non-StationDisconnected event.");
+    return;
+  }
+
+  station_disconnection_callback_ = cb;
+}
+
 void WiFiAdapter::registerEventHandler(NetworkEvent event, SimpleEventCallback cb) {
   switch (event) {
-    case NetworkEvent::StationDisconnected:
-      station_disconnection_callback_ = cb;
-      break;
     case NetworkEvent::AccessPointStarted:
       access_point_started_callback_ = cb;
       break;
@@ -329,25 +414,6 @@ void WiFiAdapter::registerEventHandler(NetworkEvent event, SimpleEventCallback c
     default:
       logger::warn("Attempted to register SimpleEventCallback for unsupported event");
       break;
-  }
-}
-
-void WiFiAdapter::unregisterEventHandler(NetworkEvent event) {
-  switch (event) {
-    case NetworkEvent::StationConnectionEstablished:
-      station_connection_callback_ = nullptr;
-      break;
-    case NetworkEvent::StationDisconnected:
-      station_disconnection_callback_ = nullptr;
-      break;
-    case NetworkEvent::AccessPointStarted:
-      access_point_started_callback_ = nullptr;
-      break;
-    case NetworkEvent::AccessPointStopped:
-      access_point_stopped_callback_ = nullptr;
-      break;
-    default:
-      logger::warn("Attempted to unregister handler for unknown event");
   }
 }
 
@@ -361,17 +427,33 @@ void WiFiAdapter::espDispatchEvent(void* arg, const char* base, int32_t id, void
 void WiFiAdapter::handleSystemEvent(const char* base, int32_t id, void* data) {
   if (base == WIFI_EVENT) {
     switch (id) {
-      case WIFI_EVENT_STA_START:
-        esp_wifi_connect();  // wifi should be connected as soon as it starts in station mode
-        break;
-      case WIFI_EVENT_STA_DISCONNECTED:
-        network_state_.setStaDisconnected();
-
-
-        if (station_disconnection_callback_ != nullptr) {
-          station_disconnection_callback_(context_);
+      case WIFI_EVENT_STA_START: {
+        sta_started_.store(true, std::memory_order_release);
+        const esp_err_t err = esp_wifi_connect();  // wifi should be connected as soon as it starts in station mode
+        if (err != ESP_OK && err != ESP_ERR_WIFI_CONN) {
+          logger::error("WiFi connect failed on STA start: {}", esp_err_to_name(err));
+          sta_started_.store(false, std::memory_order_release);
+          network_state_.setStaFailed();
+          if (station_disconnection_callback_ != nullptr) {
+            station_disconnection_callback_(context_, WIFI_REASON_UNSPECIFIED, true);
+          }
         }
         break;
+      }
+      case WIFI_EVENT_STA_DISCONNECTED: {
+        network_state_.setStaDisconnected();
+        if (!sta_started_.load(std::memory_order_acquire)) {
+          break;
+        }
+
+        const auto* disconn = static_cast<const wifi_event_sta_disconnected_t*>(data);
+        const std::uint8_t reason =
+            disconn != nullptr ? disconn->reason : static_cast<std::uint8_t>(WIFI_REASON_UNSPECIFIED);
+        if (station_disconnection_callback_ != nullptr) {
+          station_disconnection_callback_(context_, reason, false);
+        }
+        break;
+      }
       case WIFI_EVENT_AP_START:
         network_state_.setApConnected();
 
@@ -392,7 +474,10 @@ void WiFiAdapter::handleSystemEvent(const char* base, int32_t id, void* data) {
   } else if (base == IP_EVENT) {
     switch (id) {
       case IP_EVENT_STA_GOT_IP: {
-        ip_event_got_ip_t* event_data = static_cast<ip_event_got_ip_t*>(data);
+        if (!sta_started_.load(std::memory_order_acquire)) {
+          break;
+        }
+        auto* event_data = static_cast<ip_event_got_ip_t*>(data);
         app::network::IpAddress ip_address{event_data->ip_info.ip.addr};
 
         network_state_.setStaConnected();
@@ -402,6 +487,15 @@ void WiFiAdapter::handleSystemEvent(const char* base, int32_t id, void* data) {
         }
         break;
       }
+      case IP_EVENT_STA_LOST_IP:
+        network_state_.setStaDisconnected();
+        if (sta_started_.load(std::memory_order_acquire)) {
+          logger::warn("STA lost IP address, reconnecting");
+          esp_wifi_disconnect();
+        }
+        break;
+      case IP_EVENT_AP_STAIPASSIGNED:
+        break;
       default:
         logger::debug("Unhandled IP_EVENT with id: {}", id);
     }

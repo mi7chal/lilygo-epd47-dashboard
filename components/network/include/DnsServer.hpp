@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <cstdint>
 
 #include "IpAddress.hpp"
@@ -19,16 +18,15 @@ class DnsServer {
   DnsServer& operator=(DnsServer&&) = delete;
 
   bool start(IpAddress ip_address);
+  void requestStop() noexcept { runner_.requestStop(); }
   void stop();
-  [[nodiscard]] bool isActive() const { return runner_.isRunning(); }
+  [[nodiscard]] bool isActive() const { return runner_.isRunning() && !runner_.stopRequested(); }
 
  private:
   static void taskEntry(void* context);
   void runLoop();
-  void closeSocket();
 
   utils::TaskRunner runner_;
-  std::atomic<int> server_socket_{-1};
   IpAddress ip_address_;
 };
 

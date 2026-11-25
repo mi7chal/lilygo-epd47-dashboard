@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <mutex>
 
 #include "State.hpp"
 #include "freertos/FreeRTOS.h"
@@ -45,6 +46,7 @@ class TaskRunner {
 
   State<TaskState> state_{TaskState::Idle};
   std::atomic<bool> stop_requested_{false};
+  std::mutex join_mutex_;
   SemaphoreHandle_t done_;
   Body body_{nullptr};
   void* context_{nullptr};
